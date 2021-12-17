@@ -24,7 +24,13 @@ import re
 import json
 from PIL import Image
 
-MAX_SUMMARY_LENGTH = 40
+import yaml
+
+from functools import lru_cache
+
+import inspect
+
+MAX_SUMMARY_LENGTH = 30
 
 
 def log(*args):
@@ -42,7 +48,8 @@ class JiraSearch(object):
         self.url = url + '/rest/api/latest'
         self.auth = auth
         self.no_verify_ssl = no_verify_ssl
-        self.fields = ','.join(['key', 'summary', 'status', 'description', 'issuetype', 'issuelinks', 'subtasks'])
+        self.fields = ','.join(['key', 'summary', 'status', 'description', 'issuetype', 'issuelinks', 'subtasks', 'labels'])
+        self.issue_cache = {}
 
     def get(self, uri, params={}):
         headers = {'Content-Type' : 'application/json'}
@@ -82,32 +89,27 @@ class JiraSearch(object):
 
 
     def get_issue(self, key):
-        """ Given an issue key (i.e. JRA-9) return the JSON representation of it. This is the only place where we deal
-            with JIRA's REST API. """
+        """ Given an issue key (i.e. JRA-9) return the JSON representation of it. """
         log('Fetching ' + key)
+        # log(inspect.getouterframes(inspect.currentframe()))
         # we need to expand subtasks and links since that's what we care about here.
         response = self.get('/issue/%s' % key, params={'fields': self.fields})
         response.raise_for_status()
         return response.json()
 
     def add_attachment(self, key, file_attachment):
-        """ Given an issue key (i.e. JRA-9) return the JSON representation of it. This is the only place where we deal
-            with JIRA's REST API. """
+        """ Given an issue key (i.e. JRA-9) and file, add a file attachment to it on Jira. """
         log('Attaching %s to %s' % (file_attachment, key))
-        # we need to expand subtasks and links since that's what we care about here.
         response = self.post('/issue/%s/attachments' % key, file_attachment)
         response.raise_for_status()
         return response.json()
 
     def update_issue(self, key, payload):
-        """ Given an issue key (i.e. JRA-9) return the JSON representation of it. This is the only place where we deal
-            with JIRA's REST API. """
+        """ Given an issue key (i.e. JRA-9) and data payload, update the issue on Jira. """
         log('Updating ' + key)
-        # we need to expand subtasks and links since that's what we care about here.
         response = self.put('/issue/%s' % key, payload)
         response.raise_for_status()
         return response
-        # return response
 
     def query(self, query):
         log('Querying ' + query)
@@ -123,28 +125,179 @@ class JiraSearch(object):
     def get_issue_uri(self, issue_key):
         return self.__base_url + '/browse/' + issue_key
 
+    def get_query_uri(self, jql):
+        return self.__base_url + '/issues/?jql=' + requests.utils.quote(jql)
 
-def build_graph_data(start_issue_key, jira, excludes, show_directions, directions, includes, issue_excludes,
-                     ignore_closed, ignore_epic, ignore_subtasks, traverse, word_wrap):
-    """ Given a starting image key and the issue-fetching function build up the GraphViz data representing relationships
-        between issues. This will consider both subtasks and issue links.
-    """
-    def get_key(issue):
-        return issue['key']
+    def issue_cache_get(self, issue_key):
+        issue = self.issue_cache.get(issue_key)
+        if issue is None:
+            issue = self.get_issue(issue_key)
+            self.issue_cache_set(issue)
+        return issue
 
-    def get_status_color(status_field):
-        status = status_field['statusCategory']['name'].upper()
+    def issue_cache_set(self, issue):
+        self.issue_cache_prep(issue)
+        self.issue_cache[issue['key']] = issue
+
+    @staticmethod
+    def issue_cache_prep(issue):
+        # avoiding some differences for sanity check comparison
+        if 'expand' in issue.keys():
+            issue.pop('expand')
+
+
+class GraphConfig:
+    __config_dict = None
+
+    def __init__(self, config_dict):
+        self.__config_dict = config_dict
+        log(self.__config_dict)
+
+    def color_setting(self):
+        return self.__config_dict.get('color-setting', {})
+
+    def workflows(self):
+        return self.__config_dict.get('workflows', [])
+
+    def nodes(self):
+        return self.__config_dict.get('nodes', [])
+
+    def edges(self):
+        return self.__config_dict.get('edges', [])
+
+    def labels(self):
+        return self.__config_dict.get('labels', [])
+
+    def get_default_node_options(self):
+        node_options = {}
+
+        color_scheme = self.color_setting().get('color-scheme', None)
+        if color_scheme is not None:
+            node_options['colorscheme'] = color_scheme
+
+        return node_options
+
+    @lru_cache(maxsize=None)
+    def get_node_options(self, node_type):
+        shape_options = next((item for item in self.__config_dict.get('nodes', {}) if node_type in item['name']), {})
+        return shape_options.get('node-options', {}), shape_options.get('edge-options', {})
+
+    @lru_cache(maxsize=None)
+    def get_edge_options(self, parent_node_type):
+        return next((item for item in self.__config_dict.get('edges', {}) if parent_node_type in item['name']), {}).get(
+            'edge-options', {})
+
+    def get_issue_color(self, issue_type_name, status_name, status_category_name):
+        try:
+            (fill_color, font_color) = self.get_issue_status_color(issue_type_name, status_name)
+        except StopIteration:
+            log("issue type '{}/{}' not found, defaulting color scheme".format(issue_type_name, status_name))
+            fill_color = "/{}/{}".format('x11', self.get_status_category_color(status_category_name))
+            font_color = None
+        return fill_color, font_color
+
+    def get_issue_status_color(self, issue_type_name, state_name):
+        workflow_states = self.get_card_states(issue_type_name)
+        if workflow_states is None:
+            raise StopIteration
+
+        fill_color = "white"
+        font_color = None
+
+        try:
+            state_index = workflow_states.index(state_name.lower())
+            progress_percentage = (state_index + 0.5) / float(len(workflow_states))
+            fill_color_list = self.color_setting().get('fill-colors', None)
+            if fill_color_list is not None:
+                fill_color = self.select_from_progression(fill_color_list, progress_percentage, fill_color)
+            font_color_list = self.color_setting().get('font-colors', None)
+            if font_color_list is not None:
+                font_color = self.select_from_progression(font_color_list, progress_percentage, font_color)
+        except ValueError:
+            pass
+
+        if fill_color is not None:
+            fill_color = str(fill_color)
+
+        if font_color is not None:
+            font_color = str(font_color)
+
+        return fill_color, font_color
+
+    @staticmethod
+    def select_from_progression(ordered_list, progress_percentage, default):
+        index = int(len(ordered_list) * progress_percentage)
+        if ordered_list[index] != 'None':
+            return ordered_list[index]
+        else:
+            return default
+
+    def get_card_states(self, card_type):
+        workflow_index = self.get_workflow_index(card_type)
+        if workflow_index is None:
+            return None
+        return self.get_workflow_states(workflow_index)
+
+    @lru_cache(maxsize=None)
+    def get_workflow_states(self, workflow_index):
+        return self.workflows()[workflow_index]['states']
+
+    @lru_cache(maxsize=None)
+    def get_workflow_index(self, card_type):
+        return next(
+            (i for i, item in enumerate(self.workflows()) if card_type.lower() in item['issue-types']),
+            None)
+
+    @staticmethod
+    def get_status_category_color(status_category_name):
+        status = status_category_name.upper()
         if status == 'IN PROGRESS':
             return 'yellow'
         elif status == 'DONE':
             return 'green'
         return 'white'
 
-    def create_node_text(issue_key, fields, islink=True):
-        summary = fields['summary']
-        status = fields['status']
 
-        if word_wrap == True:
+def build_graph_data(start_issue_key, jira, excludes, show_directions, directions, includes, issue_excludes,
+                     ignore_closed, ignore_epic, ignore_subtasks, traverse, word_wrap, search_depth_limit, elements_to_include,
+                     graph_config, card_levels):
+    """ Given a starting image key and the issue-fetching function build up the GraphViz data representing relationships
+        between issues. This will consider both subtasks and issue links.
+    """
+    def get_key(issue):
+        return issue['key']
+
+    def create_node_text(issue_key, fields, islink=True):
+        if islink:
+            return '"{}"'.format(issue_key)
+
+        node_attributes = {'href': jira.get_issue_uri(issue_key),
+                           'label': get_node_label(issue_key, fields),
+                           'style': 'filled'}
+
+        # issue-type-specific, node attributes
+
+        node_options, edge_options = graph_config.get_node_options(fields['issuetype']['name'].lower())
+        node_attributes.update(node_options)
+
+        # issue-state specific, node coloring
+
+        fill_color, font_color = graph_config.get_issue_color(fields['issuetype']['name'],
+                                                              fields['status']['name'],
+                                                              fields['status']['statusCategory']['name'])
+
+        node_attributes['fillcolor'] = fill_color
+
+        if font_color is not None:
+            node_attributes['fontcolor'] = font_color
+
+        # graphviz node markup
+
+        return '"{}" [{}]'.format(issue_key, dict_to_attrs(node_attributes))
+
+    def get_node_label(issue_key, fields):
+        summary = fields['summary']
+        if word_wrap:
             if len(summary) > MAX_SUMMARY_LENGTH:
                 # split the summary into multiple lines adding a \n to each line
                 summary = textwrap.fill(fields['summary'], MAX_SUMMARY_LENGTH)
@@ -155,13 +308,11 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                 summary = fields['summary'][:MAX_SUMMARY_LENGTH] + '...'
         summary = summary.replace('"', '\\"')
         summary = summary.replace('\n', '\\n')
-        # log('node ' + issue_key + ' status = ' + str(status))
-
-        if islink:
-            return '"{} {}\\n{}"'.format(issue_key, fields['status']['name'], summary)
-        return '"{} {}\\n{}" [href="{}", fillcolor="{}", style=filled]'.format(issue_key, fields['status']['name'],
-                                                                               summary, jira.get_issue_uri(issue_key),
-                                                                               get_status_color(status))
+        if 'state' in elements_to_include:
+            node_label = '{} {}\\n{}'.format(issue_key, fields['status']['name'], summary)
+        else:
+            node_label = '{}\\n{}'.format(issue_key, summary)
+        return node_label
 
     def process_link(fields, issue_key, link):
         if 'outwardIssue' in link:
@@ -199,26 +350,35 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         arrow = ' => ' if direction == 'outward' else ' <= '
         log(issue_key + arrow + link_type + arrow + linked_issue_key)
 
-        extra = ',color="red"' if link_type in ["blocks", "is blocking", "is blocked by"] else ""
+        edge_options = {'label': link_type}
+        if link_type in ["blocks", "is blocking", "is blocked by"]:
+            edge_options.update(graph_config.get_edge_options('block'))
+            if fields['status']['statusCategory']['name'].upper() == 'DONE':
+                edge_options.update({'color': 'black'})
 
         if direction not in show_directions:
-            node = None
+            edge = None
         else:
             # log("Linked issue summary " + linked_issue['fields']['summary'])
-            node = '{}->{}[label="{}"{}]'.format(
-                create_node_text(issue_key, fields),
-                create_node_text(linked_issue_key, linked_issue['fields']),
-                link_type, extra)
+            edge = create_edge_text(create_node_text(issue_key, fields),
+                                    create_node_text(linked_issue_key, linked_issue['fields']),
+                                    edge_options)
 
-        return linked_issue_key, node
+        return linked_issue_key, edge
 
     # since the graph can be cyclic we need to prevent infinite recursion
     seen = []
+    seen_labels = {}
 
-    def walk(issue_key, graph):
+    sanity_check_issue_cache = False
+
+    def walk(issue_key, graph, remaining_depth_limit=None):
         """ issue is the JSON representation of the issue """
-        issue = jira.get_issue(issue_key)
-        children = []
+        log("Walking: {}".format(issue_key))
+
+        issue_cache_sanity_check(issue_key)
+        issue = jira.issue_cache_get(issue_key)
+
         fields = issue['fields']
         seen.append(issue_key)
 
@@ -232,64 +392,145 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
         graph.append(create_node_text(issue_key, fields, islink=False))
 
+        if 'labels' in elements_to_include and ('labels' in fields.keys()):
+            seen_labels[issue_key] = fields['labels']
+
+        if remaining_depth_limit is not None:
+            # update issue depth to the minimum depth observed
+            current_depth = search_depth_limit - remaining_depth_limit
+            card_levels[issue_key] = min(card_levels.get(issue_key, current_depth), current_depth)
+            # decrease the remaining depth limit, and stop recursion if we've reached that limit
+            remaining_depth_limit -= 1
+            if remaining_depth_limit < 0:
+                return graph
+
+        children = []
+
         if not ignore_subtasks:
             if fields['issuetype']['name'] == 'Epic' and not ignore_epic:
-                issues = jira.query('"Epic Link" = "%s"' % issue_key)
+                if ignore_closed:
+                    issues = jira.query('"Epic Link" = "%s" AND status != Closed' % issue_key)
+                else:
+                    issues = jira.query('"Epic Link" = "%s"' % issue_key)
                 for subtask in issues:
                     subtask_key = get_key(subtask)
-                    log(subtask_key + ' => references epic => ' + issue_key)
-                    node = '{}->{}[color=orange]'.format(
-                        create_node_text(issue_key, fields),
-                        create_node_text(subtask_key, subtask['fields']))
-                    graph.append(node)
+
+                    log(issue_key + ' => has issue => ' + subtask_key)
+                    edge = create_edge_text(create_node_text(issue_key, fields),
+                                            create_node_text(subtask_key, subtask['fields']),
+                                            graph_config.get_edge_options('epic'))
+
+                    graph.append(edge)
                     children.append(subtask_key)
+
+                    # let's avoid re-querying this when we iterate over children, since we've already got it here
+                    issue_cache_sanity_check(subtask)
+                    jira.issue_cache_set(subtask)
+
             if 'subtasks' in fields and not ignore_subtasks:
                 for subtask in fields['subtasks']:
                     subtask_key = get_key(subtask)
+                    if ignore_closed and (subtask['fields']['status']['name'] in 'Closed'):
+                        log('Skipping Subtask ' + subtask_key + ' - it is Closed')
+                        continue
                     log(issue_key + ' => has subtask => ' + subtask_key)
-                    node = '{}->{}[color=blue][label="subtask"]'.format (
-                            create_node_text(issue_key, fields),
-                            create_node_text(subtask_key, subtask['fields']))
-                    graph.append(node)
+                    edge = create_edge_text(create_node_text(issue_key, fields),
+                                            create_node_text(subtask_key, subtask['fields']),
+                                            graph_config.get_edge_options('subtask'))
+                    graph.append(edge)
                     children.append(subtask_key)
 
         if 'issuelinks' in fields:
             for other_link in fields['issuelinks']:
                 result = process_link(fields, issue_key, other_link)
                 if result is not None:
-                    log('Appending ' + result[0])
-                    children.append(result[0])
-                    if result[1] is not None:
-                        graph.append(result[1])
+                    (linked_issue_key, edge) = result
+                    log('Appending ' + linked_issue_key)
+                    children.append(linked_issue_key)
+                    if edge is not None:
+                        graph.append(edge)
         # now construct graph data for all subtasks and links of this issue
-        for child in (x for x in children if x not in seen):
-            walk(child, graph)
+        for child in (x for x in children if x not in seen and x not in issue_excludes):
+            walk(child, graph, remaining_depth_limit)
         return graph
 
+    def issue_cache_sanity_check(issue_key_or_issue):
+        if not sanity_check_issue_cache:
+            return
+
+        if isinstance(issue_key_or_issue, dict):
+            issue = issue_key_or_issue
+            issue_key = get_key(issue_key_or_issue)
+        else:
+            issue = None
+            issue_key = issue_key_or_issue
+
+        if issue_key in jira.issue_cache.keys():
+            if issue is None:
+                issue = jira.get_issue(issue_key)
+            jira.issue_cache_prep(issue)
+            if jira.issue_cache[issue_key] != issue:
+                log('ISSUE_CACHE != ISSUE:')
+                log('issue_cache:')
+                log(jira.issue_cache[issue_key])
+                log('issue:')
+                log(issue)
+
+
+    def color_demo(graph):
+        # demonstrate issue color configs
+        for workflow_idx, workflow in enumerate(graph_config.workflows()):
+            issue_type_name = workflow['issue-types'][0]
+            issue_type_nodes = []
+            issue_key_prior = None
+            for state_idx, state in enumerate(workflow['states']):
+                issue_key = '{}-00{}'.format(issue_type_name, state_idx)
+                issue_fields = {
+                    'summary': 'summary',
+                    'status': {
+                        'name': state,
+                        'statusCategory': {
+                            'name': 'name'
+                        }
+                    },
+                    'issuetype': {
+                        'name': issue_type_name
+                    }
+                }
+                isLink = False
+                issue_type_nodes.append(create_node_text(issue_key, issue_fields, isLink))
+                if issue_key_prior is not None:
+                    graph.append(create_edge_text('"{}"'.format(issue_key_prior),
+                                                  '"{}"'.format(issue_key)))
+                issue_key_prior = issue_key
+
+            graph.append('subgraph {{{}}}'.format(';'.join(issue_type_nodes)))
+        return graph
+
+    if start_issue_key == 'color-demo':
+        return color_demo([]), seen, seen_labels
+
     project_prefix = start_issue_key.split('-', 1)[0]
-    return walk(start_issue_key, [])
+    return walk(start_issue_key, [], search_depth_limit), seen, seen_labels
 
 
-def update_issue_graph(issue_key, jira, file_attachment_path):
+def update_issue_graph(jira, issue_key, file_attachment_path):
     """ Given a key and the issue-fetching function, insert/update the auto-generated graph to the card's description.
     """
 
-    def update(issue_key, file_attachment_path):
+    def update(update_issue_key, update_file_attachment_path):
         """ issue is the JSON representation of the issue """
-        # attach the file image to the card
-        response_json = jira.add_attachment(issue_key, file_attachment_path)
-
         # generate the inline image markup of the newly attached image
-        _, attachment_name = os.path.split(file_attachment_path)
-        width, height = Image.open(file_attachment_path).size
+        _, attachment_name = os.path.split(update_file_attachment_path)
+        width, height = Image.open(update_file_attachment_path).size
         image_tag = "%s|width=%d,height=%d"  % (attachment_name, width, height)
 
         # append or replace the description's inline image
-        issue = jira.get_issue(issue_key)
+        issue = jira.get_issue(update_issue_key)
         description = issue['fields']['description']
         previous_image = re.search(r"^(h3\.\s*Jira Dependency Graph\s+\!)([^\!]+)(\!)", description, re.MULTILINE)
         if previous_image is not None:
-            old_attachment_name = previous_image.group(2) # leaving deletion to humans, just in case
+            # old_attachment_name = previous_image.group(2) # leaving deletion to humans, just in case
             description = description.replace(previous_image.group(0),
                                               previous_image.group(1) + image_tag + previous_image.group(3))
         else:
@@ -298,23 +539,22 @@ def update_issue_graph(issue_key, jira, file_attachment_path):
         # update the card's description
         updated_fields = {"fields": {"description": description}}
         payload = json.dumps(updated_fields)
-        response_json = jira.update_issue(issue_key, payload)
+        jira.update_issue(update_issue_key, payload)
 
     return update(issue_key, file_attachment_path)
 
 
-def create_graph_image(graph_data, image_file, node_shape):
+def create_graph_images(graph_data, image_file, default_node_attributes):
     """ Given a formatted blob of graphviz chart data[1], generate and store the resulting image to disk.
     """
 
-    digraph = 'digraph{node [shape=' + node_shape + '];%s}' % ';'.join(graph_data)
+    digraph = 'digraph{{node [{}];\n{}}}'.format(default_node_attributes, ';\n'.join(graph_data))
     src = graphviz.Source(digraph)
     log('Writing ' + image_file + ".png")
-    src.render(image_file, format="png") # for the card description, mostly
+    src.render(image_file, format="png")  # for updating the card description, mostly
     log('Writing ' + image_file + ".pdf")
-    src.render(image_file, format="pdf") # fun b/c nodes are hyperlinks to jira, allowing navigation from the graph
+    src.render(image_file, format="pdf")  # fun b/c nodes are hyperlinks to jira, allowing navigation from the graph
 
-    return image_file
 
 def print_graph(graph_data, node_shape):
     print('digraph{\nnode [shape=' + node_shape +'];\n\n%s\n}' % ';\n'.join(graph_data))
@@ -322,7 +562,7 @@ def print_graph(graph_data, node_shape):
 
 def parse_args(choice_of_org=None):
     config = configparser.ConfigParser()
-    config.read('./personal-config.ini')
+    config.read('/config/personal-config.ini')
     if choice_of_org is None:
         choice_of_org = config.sections()[0]
 
@@ -341,7 +581,6 @@ def parse_args(choice_of_org=None):
     parser.add_argument('-j', '--jira', dest='jira_url', default=default_host, help='JIRA Base URL (with protocol)')
     parser.add_argument('-f', '--file', dest='image_file', default='issue_graph', help='Filename to write image to')
     parser.add_argument('-l', '--local', action='store_true', default=False, help='Render graphviz code to stdout')
-    parser.add_argument('-iu', '--issue-update', dest='issue_update', default='', help='Update issue description graph')
     parser.add_argument('-e', '--ignore-epic', action='store_true', default=False, help='Don''t follow an Epic into it''s children issues')
     parser.add_argument('-x', '--exclude-link', dest='excludes', default=[], action='append', help='Exclude link type(s)')
     parser.add_argument('-ic', '--ignore-closed', dest='closed', action='store_true', default=False, help='Ignore closed issues')
@@ -354,6 +593,11 @@ def parse_args(choice_of_org=None):
     parser.add_argument('-t', '--ignore-subtasks', action='store_true', default=False, help='Don''t include sub-tasks issues')
     parser.add_argument('-T', '--dont-traverse', dest='traverse', action='store_false', default=True, help='Do not traverse to other projects')
     parser.add_argument('-w', '--word-wrap', dest='word_wrap', default=False, action='store_true', help='Word wrap issue summaries instead of truncating them')
+    parser.add_argument('-dl', '--depth-limit', dest='depth_limit', default=None, help='Link depth limit', type=int)
+    parser.add_argument('--include-state', dest='include_state', action='store_true', default=False, help='Include issue state')
+    parser.add_argument('--include-labels', dest='include_labels', action='store_true', default=False, help='Include issue labels')
+    parser.add_argument('--include-arguments', dest='include_arguments', action='store_true', default=False, help='Include graph arguments')
+    parser.add_argument('-iu', '--issue-update', dest='issue_update', default='', help='Update issue description graph')
     parser.add_argument('--no-verify-ssl', dest='no_verify_ssl', default=False, action='store_true', help='Don\'t verify SSL certs for requests')
     parser.add_argument('issues', nargs='*', help='The issue key (e.g. JRADEV-1107, JRADEV-1391)')
     return parser.parse_args()
@@ -366,10 +610,19 @@ def filter_duplicates(lst):
     srt_enum = sorted(enumerate(lst), key=lambda i_val: i_val[1])
     return [item[1] for item in sorted(reduce(append_unique, srt_enum, [srt_enum[0]]))]
 
+def dict_to_attrs(dict, delimiter=','):
+    return delimiter.join(['{}="{}"'.format(k, v) for k, v in dict.items() if k != 'name'])
+
+def create_edge_text(source_node_text, destination_node_text, edge_options={}):
+    edge = '{}->{}[{}]'.format(
+        source_node_text,
+        destination_node_text,
+        dict_to_attrs(edge_options))
+    return edge
 
 def main():
     config = configparser.ConfigParser()
-    config.read('./personal-config.ini')
+    config.read('/config/personal-config.ini')
 
     # parse args as if for default org.  if parsed org is not the default org, then re-parse
     options = parse_args()
@@ -395,26 +648,123 @@ def main():
     if options.jql_query is not None:
         options.issues.extend(jira.list_ids(options.jql_query))
 
-    # override the default image name with one that indicates issues queried
-    if options.image_file == 'issue_graph':
-        issues_str = '-'.join(options.issues)
-        timestamp_str = datetime.now().isoformat(timespec='seconds').translate({ord(c): None for c in ":-"})
-        filename_str = '/out/' + issues_str + '.graph.' + timestamp_str
-        options.image_file = filename_str
+    elements_to_include = []
+    if options.include_labels:
+        elements_to_include.append('labels')
+    if options.include_state:
+        elements_to_include.append('state')
+    if options.include_arguments:
+        elements_to_include.append('graph_arguments')
+
+    try:
+        with open('/config/{}-config.yml'.format(options.org.lower()), 'r') as file:
+            color_config = yaml.safe_load(file)
+    except FileNotFoundError:
+        color_config = {}
+
+    graph_config = GraphConfig(color_config)
 
     graph = []
-    for issue in options.issues:
-        graph = graph + build_graph_data(issue, jira, options.excludes, options.show_directions, options.directions,
+    seen = []
+    seen_labels = {}
+    card_levels = {}
+
+    walk_depth_limit = None if options.depth_limit is None else options.depth_limit + 1
+
+    for issue in (x for x in options.issues if x not in seen and x not in options.issue_excludes):
+        (g, s, l) = build_graph_data(issue, jira, options.excludes, options.show_directions, options.directions,
                                          options.includes, options.issue_excludes, options.closed, options.ignore_epic,
-                                         options.ignore_subtasks, options.traverse, options.word_wrap)
+                                         options.ignore_subtasks, options.traverse, options.word_wrap, walk_depth_limit,
+                                         elements_to_include, graph_config, card_levels)
+        graph = graph + g
+        seen = seen + s
+
+        if 'labels' in elements_to_include:
+            seen_labels.update(l)
+
+    # select only cards that are within the (conditionally) desired depth
+
+    cards_beyond_depth_limit = []
+    if options.depth_limit is not None:
+        cards_beyond_depth_limit = [k for k, depth in card_levels.items() if depth > options.depth_limit]
+        graph = [line for line in graph if all('"{}"'.format(issue_key) not in line for issue_key in cards_beyond_depth_limit)]
+
+    if 'labels' in elements_to_include:
+        node_options = {}
+        node_edge_options = {}
+
+        label_node_options, label_edge_options = graph_config.get_node_options('label')
+        node_options.update(label_node_options)
+        node_edge_options.update(label_edge_options)
+
+        labels_to_consolidate = {}
+        issue_labels = graph_config.labels()
+        # map labels to consolidated group label
+        for label_to_consolidate in [{group_item: item['name'] for group_item in item['group']}
+                                     for item in issue_labels if 'group' in item.keys()]:
+            labels_to_consolidate.update(label_to_consolidate)
+
+        # map labels to be ignored
+        for label_to_consolidate in [{group_item: None for group_item in item['ignore']}
+                                     for item in issue_labels if 'ignore' in item.keys()]:
+            labels_to_consolidate.update(label_to_consolidate)
+
+        for issue_key, labels in seen_labels.items():
+            if issue_key in cards_beyond_depth_limit:
+                continue
+
+            for card_label in labels:
+                card_label = labels_to_consolidate.get(card_label.lower(), card_label)
+                if card_label is None:
+                    continue
+
+                label_options = node_options.copy()
+                label_options['href'] = jira.get_query_uri('labels in ({}) and not statusCategory = Done'.format(card_label.replace('/', ', ')))
+                label_node_text = '"{}"[{}]'.format(card_label, dict_to_attrs(label_options))
+                graph.append(label_node_text)
+
+                label_edge_text = create_edge_text('"{}"'.format(card_label),
+                                                   '"{}"'.format(issue_key),
+                                                   node_edge_options)
+                graph.append(label_edge_text)
+
+    if 'graph_arguments' in elements_to_include:
+        graph_title_options = {'labelloc':'t', 'label':format(' '.join(sys.argv[1:]).replace('"', '\\"').replace("'", "\'"))}
+        graph = graph + [dict_to_attrs(graph_title_options, ';')]
 
     if options.local:
         print_graph(filter_duplicates(graph), options.node_shape)
     else:
-        image_file = create_graph_image(filter_duplicates(graph), options.image_file, options.node_shape)
+        # print_graph(filter_duplicates(graph), options.node_shape)
+
+        # override the default image name with one that indicates issues queried
+        image_filename = options.image_file
+        if options.image_file == 'issue_graph':
+            if options.jql_query:
+                issues_str = re.sub(r'[^\w]+', '_', options.jql_query).strip('_')
+            elif options.issues:
+                issues_str = '-'.join(options.issues[:10])
+            else:
+                issues_str = 'graph'
+            timestamp_str = datetime.now().isoformat(timespec='seconds').translate({ord(c): None for c in ":-"})
+            image_filename = issues_str + '.graph.' + timestamp_str
+        image_filename = '/out/' + image_filename
+
+        default_node_attributes = {'shape': options.node_shape}
+        default_node_attributes.update(graph_config.get_default_node_options())
+
+        create_graph_images(filter_duplicates(graph), image_filename, dict_to_attrs(default_node_attributes))
         if options.issue_update:
-            file_attachment_path = image_file + ".png"
-            update_issue_graph(options.issue_update, jira, file_attachment_path)
+            # attach the pdf
+            file_attachment_path = image_filename + ".pdf"
+            jira.add_attachment(options.issue_update, file_attachment_path)
+
+            # attach the png
+            file_attachment_path = image_filename + ".png"
+            jira.add_attachment(options.issue_update, file_attachment_path)
+
+            # update the issue description with the updated png
+            update_issue_graph(jira, options.issue_update, file_attachment_path)
 
 if __name__ == '__main__':
     main()

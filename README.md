@@ -165,47 +165,105 @@ Notes:
 ======
 Based on: [draw-chart.py](https://developer.atlassian.com/download/attachments/4227078/draw-chart.py) and [Atlassian JIRA development documentation](https://developer.atlassian.com/display/JIRADEV/JIRA+REST+API+Version+2+Tutorial#JIRARESTAPIVersion2Tutorial-Example#1:GraphingImageLinks), which seemingly was no longer compatible with JIRA REST API Version 2.
 
-Apologies and Messy Changes:
+
+Apologies and Messy Changes (gfaza customizations WIP):
 ======
-This single commit for the sake of sharing immediately, is less than awesome.  I'd love to come back and clean both the code and the comments, especially since there are other tweaks to come.
+These hasty and large commits for the sake of sharing quickly, are less than congenial.  I'd love to come back and clean both the code and the comments, especially since there are other tweaks to come.
 
-Things included in this messy single commit:
+**Please Note:** Backward compatibility with the above hasn't been asserted.
 
-1. Getting started, you'll need to create then update `personal-config.ini` with your Jira credentials.  **BEWARE**: do not commit this file, so you don't accidentally share your creds!
+**FWIW:** These changes were developed and utilized with the following suggested runtime options:
 ```bash
-echo "[EXAMPLE]\nJIRA_HOST = https://example.atlassian.net\nJIRA_USER = alice@example.com\nJIRA_PASS = # Create an API key at https://id.atlassian.com/manage-profile/security/api-tokens\n" > personal-config.ini
+-show-directions=outward --word-wrap --include-state --include-labels
 ```
 
-2. For access to multiple organizations, add those additional creds in `personal-config.ini` then specify on the command line with the `--org` option.  The script will default to the first org it finds, unless `--org` is specified.
-```bash
---org=EXAMPLE
-```
+Things included in these changes:
 
-2. Once you've added your creds, if you are aimed at using the docker version, you'll need to build the docker image.  **BEWARE**: This image will contain a copy of your `personal-config.ini` (which contains your Jira creds), so don't share this image unless you intend to share your credentials!
-```bash
-> docker build -t jira .
-```
+1. Getting started, you'll need to create then update `personal-config.ini` with your Jira credentials.  **BEWARE**: do not commit this file, so you don't accidentally share your creds!  Additionally, you'll likely enjoy updating the domain-specific configuration template in order to stylize your output.
+    ```bash
+    > ./initialize-organization-configuration.sh
+    ```
+    or in case that fails, the following:
+    ```bash
+    > mkdir ./config
+    > echo "[EXAMPLE]\nJIRA_HOST = https://example.atlassian.net\nJIRA_USER = alice@example.com\nJIRA_PASS = # Create an API key at https://id.atlassian.com/manage-profile/security/api-tokens\n\n" > ./config/personal-config.ini
+    > echo "### define the color scheme and state color progression to use. ###\ncolor-setting:\n  color-scheme: ylgn9\n  fill-colors: [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]\n  font-colors: [None, None, None, None, None, None, white, white, white ]\n### define any graph attributes particular to specific node types ###\nnodes:\n  - name: [ epic ]\n    node-options:\n      shape: cylinder\n      labelloc: b\n    edge-options:\n      color: orange\n  - name: [ label ]\n    node-options:\n      shape: cds\n    edge-options:\n      color: grey85\n### define any graph attributes particular to specific edge types ###\nedges:\n  - name: [ epic ]\n    edge-options:\n      color: orange\n  - name: [ subtask ]\n    edge-options:\n      color: blue\n      label: subtask\n  - name: [ block ]\n    edge-options:\n      color: red\n### define the issue states to be colored according to the custom color scheme progression.  any omitted will show according to the status category: yellow ('In Progress'), green ('Complete'), else (no color/white) ###\nworkflows:\n  - issue-types: [ epic ]\n    states:\n      # - backlog\n      - in progress\n      - completed\n  - issue-types: [ story, bug ]\n    states:\n      # - backlog\n      # - ready for development\n      - in development\n      - ready for testing\n      - in testing\n      - ready for release\n      - released\n### consolidate groups of labels to a single alias ###\nlabels:\n  - name: Defect\n    group: [ defect, bug, staging-bug, production-bug ]\n  - name: Research & Development\n    group: [ spike, arch, architecture, research, r&d ]\n  ### labels to omit from diagrams ###\n  - ignore: [ documentation, testing, tech-debt ]\n" > ./config/example-config.yml
+    ```
 
-5. If you prefer to use your own installation of graphviz, you can pipe the output of using `--local` to it, such as
-```bash
-> docker run -v $PWD/out:/out jira python jira-dependency-graph.py --show-directions=outward --local --word-wrap VOICE-123 | dot -Tpng > ~/Desktop/VOICE-123-graph.png
-```
+3. For access to multiple organizations, add those additional creds in `personal-config.ini` then specify on the command line with the `--org` option.  The script will default to the first `[SECTION]` it finds in your `personal-config.ini`, unless `--org` is specified.
+    ```bash
+    --org=SOME_ADDITIONAL_ORGANIZATION_I_BELONG_TO
+    ```
 
-6. The non-`--local` version seemed broken since google isn't handling that endpoint anymore, so Graphviz is now included in the docker image.  i.e., no longer required to use --local then pipe to dot (graphviz) on your host machine.
-```bash
-> docker run -v $PWD/out:/out jira python jira-dependency-graph.py --show-directions=outward --word-wrap VOICE-123
-```
+4. If you are aiming to use the docker version, you'll need to build the docker image.  This is recommended if you're concerned about ruining your local Python environment or hesitant about installing Graphviz on your local machine.
+    ```bash
+    > docker build -t jira .
+    ```
 
-7. An additional artifact when this script is executed without `--local`, will be a PDF version of the diagram, where each node on the diagram hyperlinks you to its corresponding card on jira
+5. When using the config directory, you'll need to add the share to that directory by adding the following to your command:
+    ```bash
+    $PWD/config:/config
+    ```
+
+6. If you prefer to use your own installation of Graphviz, you can pipe the output of using `--local` to it, such as
+    ```bash
+    > docker run -v $PWD/config:/config -v $PWD/out:/out jira python jira-dependency-graph.py --local STORY-123 | dot -Tpng > ~/Desktop/STORY-123-graph.png
+    ```
+
+7. The non-`--local` version seemed broken since google isn't handling that endpoint anymore, so Graphviz is now included in the docker image.  i.e., we're no longer required to use --local then pipe to dot (Graphviz) on your host machine.
+    ```bash
+    > docker run -v $PWD/config:/config -v $PWD/out:/out jira python jira-dependency-graph.py STORY-123
+    ```
+
+8. An additional artifact when this script is executed without `--local`, will be a PDF version of the diagram, where each node on the diagram hyperlinks you to its corresponding card on Jira
 
 
-8. A new command line option, to automatically update a card with your diagram.  destination card can be any card, whether or not it's related to the diagram:
-```bash
---issue-update=<jira-card-key>
-```
+8. New command line option: To automatically update a card with your diagram, specify a destination card.  This destination can be any card, whether or not it's related to the diagram.  The card specified will receive attachments of the PNG and PDF graphs, and will have it's description updated to include the graph as an embedded image:
+    ```bash
+    --issue-update=<jira-card-key>
+    ```
 
-Wishlist/Upcoming changes:
+9. New command line option: Include issue status/state on your node's label:
+    ```bash
+    --include-state
+    ```
+
+10. New command line option: Include issue labels as additional nodes on the graph.  Can be a useful way of further helping the layout algorithm:
+    ```bash
+    --include-labels
+    ```
+
+11. New command line option: Include the script command line arguments as the title of your graph:
+    ```bash
+    --include-arguments
+    ```
+
+12. New command line option: Limit the depth of issues visited, from the issues searched:
+    ```bash
+    --depth-limit=<some-int>
+    ```
+
+13. Graph configuration yaml:  A default yaml will be generated along with the `personal-config.ini`, as a template for customizing the color scheme and other elements of the graphs.  be sure to keep the org name in sync with your `personal-config.ini`.  e.g., if your `personal-config.ini` section reads `[EXAMPLE]`, then the corresponding yaml file must be named `example-config.yml`.
+    1. ***color-setting:*** The name of the Graphviz color scheme to use (https://graphviz.org/doc/info/colors.html), and the ordered list of colors to use when rendering issues, as they progress through their given workflow.
+       1. e.g., `color-setting: { color-scheme: set16, fill-colors: [1, 5, 6, 3, 2, 4] }` would produce graphs in (close to) pride colors.
+    2. ***nodes:*** Customizations for rendering Epics and Labels (optionally included in diagrams).
+    3. ***edges:*** Customizations for rendering edges related to Epic, Subtask, and Blocking issues.
+    4. ***workflows:*** Definitions for your organization's issue types, and the ordered statuses for their respective workflows.
+    5. ***labels:*** A means of consolidating similar labels to simplify graphing, as well as a means of ignoring/omitting certain labels from appearing.
+    6. Executing the command for a value of `color-demo` in place of an issue key will produce a partial preview of the graph configuration.
+       ```bash
+       > docker run -v $PWD/config:/config -v $PWD/out:/out jira python jira-dependency-graph.py color-demo
+       ```
+
+
+Wishlist/Planned changes:
 ======
-* Improve authentication mechanism, so tokens aren't stored in the clear
-* Allow choice of color scheme
-* Allow colors to reflect status in the workflow beyond "in progress" and "done" and "else"
+* Verify backward and forward compatibility, in both docker and non-docker operation (i.e., ensure enhancements are strictly optional).
+* Update/improve documentation.
+* Improve output file naming.
+* Investigate whether jira issue description embedded PNG can open PDF attachment on click (i.e., embedding PNG to serve as thumbnail href to the PDF).
+* Investigate automating updates to a specified confluence page, similar to how this automates updates to jira issues. 
+* Investigate automatically opening the graph on the local machine after rendering.
+* Consider prevent issues from being missed only because the story leading to them is ignored (distinguish ignore vs traverse).
+* Develop further flexibility via the configuration yaml.
+* Revisit dependencies, and whether they can be reduced/simplified.
