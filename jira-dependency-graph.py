@@ -790,10 +790,7 @@ def main():
             image_filename = issues_str + '.graph.' + timestamp_str
         image_filename = '/out/' + image_filename
 
-        default_node_attributes = {'shape': options.node_shape}
-        default_node_attributes.update(graph_config.get_default_node_options())
-
-        create_graph_images(filter_duplicates(graph), image_filename, dict_to_attrs(default_node_attributes))
+        create_graph_images(graph_string, image_filename)
         if options.issue_update:
             # attach the pdf
             file_attachment_path = image_filename + ".pdf"
