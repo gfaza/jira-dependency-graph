@@ -308,11 +308,25 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             if len(summary) > MAX_SUMMARY_LENGTH + 2:
                 summary = fields['summary'][:MAX_SUMMARY_LENGTH] + '...'
         summary = summary.replace('"', '\\"')
-        summary = summary.replace('\n', '\\n')
-        if 'state' in elements_to_include:
-            node_label = '{} {}\\n{}'.format(issue_key, fields['status']['name'], summary)
+        html_nodes = True
+        if html_nodes:
+            summary = summary.replace('\n', '<br/>')
+            if 'state' in elements_to_include:
+                node_label = '<<table border="0" cellspacing="0" cellpadding="3">' \
+                '<tr><td align="center"><font face="Impact">{}</font></td><td align="center"><font face="Impact">{}</font></td></tr>' \
+                '<tr><td align="center" colspan="2">{}</td></tr></table>>' \
+                    .format(issue_key, fields['status']['name'].upper(), summary)
+            else:
+                node_label = '<<table border="0" cellspacing="0" cellpadding="2">' \
+                '<tr><td align="center"><font face="Impact">{}</font></td></tr>' \
+                '<tr><td align="center">{}</td></tr></table>>' \
+                    .format(issue_key, summary)
         else:
-            node_label = '{}\\n{}'.format(issue_key, summary)
+            summary = summary.replace('\n', '\\n')
+            if 'state' in elements_to_include:
+                node_label = '{} {}\\n{}'.format(issue_key, fields['status']['name'], summary)
+            else:
+                node_label = '{}\\n{}'.format(issue_key, summary)
         return node_label
 
     def process_link(fields, issue_key, link):
@@ -625,7 +639,7 @@ def filter_duplicates(lst):
     return [item[1] for item in sorted(reduce(append_unique, srt_enum, [srt_enum[0]]))]
 
 def dict_to_attrs(dict, delimiter=','):
-    return delimiter.join(['{}="{}"'.format(k, v) for k, v in dict.items() if k != 'name'])
+    return delimiter.join([( ('{}="{}"', '{}={}')[k=='label' and v.startswith('<<')]).format(k, v) for k, v in dict.items() if k != 'name'])
 
 def create_edge_text(source_node_text, destination_node_text, edge_options={}):
     edge = '{}->{}[{}]'.format(
