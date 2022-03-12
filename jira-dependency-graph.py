@@ -552,20 +552,25 @@ def update_issue_graph(jira, issue_key, file_attachment_path):
     return update(issue_key, file_attachment_path)
 
 
-def create_graph_images(graph_data, image_file, default_node_attributes):
+def create_graph_string(graph_data, graph_attributes, default_node_attributes):
+    return 'digraph{{{};node [{}];\n{}}}'.format(dict_to_attrs(graph_attributes, ';'),
+                                                 dict_to_attrs(default_node_attributes),
+                                                 ';\n'.join(graph_data))
+
+
+def create_graph_images(graph_string, image_file):
     """ Given a formatted blob of graphviz chart data[1], generate and store the resulting image to disk.
     """
 
-    digraph = 'digraph{{node [{}];\n{}}}'.format(default_node_attributes, ';\n'.join(graph_data))
-    src = graphviz.Source(digraph)
+    src = graphviz.Source(graph_string)
     log('Writing ' + image_file + ".png")
     src.render(image_file, format="png")  # for updating the card description, mostly
     log('Writing ' + image_file + ".pdf")
     src.render(image_file, format="pdf")  # fun b/c nodes are hyperlinks to jira, allowing navigation from the graph
 
 
-def print_graph(graph_data, node_shape):
-    print('digraph{\nnode [shape=' + node_shape +'];\n\n%s\n}' % ';\n'.join(graph_data))
+def print_graph(graph_string):
+    print(graph_string)
 
 
 def parse_args(choice_of_org=None):
@@ -750,14 +755,20 @@ def main():
                                                    node_edge_options)
                 graph.append(label_edge_text)
 
+    graph_attributes = {}
     if 'graph_arguments' in elements_to_include:
-        graph_title_options = {'labelloc':'t', 'label':format(' '.join(sys.argv[1:]).replace('"', '\\"').replace("'", "\'"))}
-        graph = graph + [dict_to_attrs(graph_title_options, ';')]
+        graph_attributes.update({'labelloc': 't', 'labeljust': 'c',
+                                 'label': format(' '.join(sys.argv[1:]).replace('"', '\\"').replace("'", "\'"))})
+
+    default_node_attributes = {'shape': options.node_shape}
+    default_node_attributes.update(graph_config.get_default_node_options())
+
+    graph_string = create_graph_string(filter_duplicates(graph), graph_attributes, default_node_attributes)
 
     if options.local:
-        print_graph(filter_duplicates(graph), options.node_shape)
+        print_graph(graph_string)
     else:
-        # print_graph(filter_duplicates(graph), options.node_shape)
+        # print_graph(graph_string)
 
         # override the default image name with one that indicates issues queried
         image_filename = options.image_file
