@@ -375,7 +375,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
     def walk(issue_key, graph, remaining_depth_limit=None):
         """ issue is the JSON representation of the issue """
-        log("Walking: {}".format(issue_key))
+        log("Walking: {}, remaining_depth_limit={}".format(issue_key, remaining_depth_limit))
 
         issue_cache_sanity_check(issue_key)
         issue = jira.issue_cache_get(issue_key)
@@ -399,8 +399,9 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         if remaining_depth_limit is not None:
             # update issue depth to the minimum depth observed
             current_depth = search_depth_limit - remaining_depth_limit
-            card_levels[issue_key] = min(card_levels.get(issue_key, current_depth), current_depth)
+            current_depth = card_levels[issue_key] = min(card_levels.get(issue_key, current_depth), current_depth)
             # decrease the remaining depth limit, and stop recursion if we've reached that limit
+            remaining_depth_limit = search_depth_limit - current_depth
             remaining_depth_limit -= 1
             if remaining_depth_limit < 0:
                 return graph
@@ -668,7 +669,7 @@ def main():
     graph = []
     seen = []
     seen_labels = {}
-    card_levels = {}
+    card_levels = {k: 0 for k in options.issues}
 
     walk_depth_limit = None if options.depth_limit is None else options.depth_limit + 1
 
