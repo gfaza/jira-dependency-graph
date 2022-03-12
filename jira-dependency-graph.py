@@ -691,6 +691,20 @@ def main():
         cards_beyond_depth_limit = [k for k, depth in card_levels.items() if depth > options.depth_limit]
         graph = [line for line in graph if all('"{}"'.format(issue_key) not in line for issue_key in cards_beyond_depth_limit)]
 
+        # render cards outside of the initial depth, a little smaller
+        depth_relative_node_graph = []
+        for line in graph:
+            match_result = re.match(r'^"([\w\-]+)"', line)
+            if match_result:
+                node_issue_key = match_result.group(1)
+                if card_levels[node_issue_key] > 0:
+                    penwidth = '0.5'
+                    fontsize = '12'
+                    line = re.sub(r'\]$', ',penwidth="{}",fontsize="{}"]'.format(penwidth, fontsize), line)
+            depth_relative_node_graph.append(line)
+        graph = depth_relative_node_graph
+
+
     if 'labels' in elements_to_include:
         node_options = {}
         node_edge_options = {}
