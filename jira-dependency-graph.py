@@ -746,14 +746,20 @@ def main():
                 if card_label is None:
                     continue
 
+                # orient 'team' labels toward the beginning of the graph, and all other labels toward the end of the graph
+
                 label_options = node_options.copy()
+                if 'team' not in card_label:
+                    label_options['orientation'] = '180'
                 label_options['href'] = jira.get_query_uri('labels in ({}) and not statusCategory = Done'.format(card_label.replace('/', ', ')))
                 label_node_text = '"{}"[{}]'.format(card_label, dict_to_attrs(label_options))
                 graph.append(label_node_text)
 
-                label_edge_text = create_edge_text('"{}"'.format(card_label),
-                                                   '"{}"'.format(issue_key),
-                                                   node_edge_options)
+                edge_nodes = ['"{}"'.format(issue_key),
+                              '"{}"'.format(card_label)]
+                if 'team' in card_label:
+                    edge_nodes.reverse()
+                label_edge_text = create_edge_text(edge_nodes[0], edge_nodes[1], node_edge_options)
                 graph.append(label_edge_text)
 
     graph_attributes = {'rankdir': options.graph_rank_direction}
