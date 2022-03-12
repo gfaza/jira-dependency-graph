@@ -31,6 +31,7 @@ from functools import lru_cache
 import inspect
 
 MAX_SUMMARY_LENGTH = 30
+MAX_QUERY_RESULTS = 250
 
 
 def log(*args):
@@ -119,7 +120,7 @@ class JiraSearch(object):
 
     def list_ids(self, query):
         log('Querying ' + query)
-        response = self.get('/search', params={'jql': query, 'fields': 'key', 'maxResults': 100})
+        response = self.get('/search', params={'jql': query, 'fields': 'key', 'maxResults': MAX_QUERY_RESULTS})
         return [issue["key"] for issue in response.json()["issues"]]
 
     def get_issue_uri(self, issue_key):
