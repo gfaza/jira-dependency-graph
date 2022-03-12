@@ -364,7 +364,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             edge_nodes = [create_node_text(issue_key, fields),
                           create_node_text(linked_issue_key, linked_issue['fields'])]
 
-            # orient blockers as dependencies (toward end of graph)
+            # orient blockers as dependencies (away from graph root)
             if link_type in ["blocks", "is blocking", "is blocked by"]:
                 edge_options['dir'] = 'back'
                 edge_nodes.reverse()
