@@ -361,9 +361,15 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             edge = None
         else:
             # log("Linked issue summary " + linked_issue['fields']['summary'])
-            edge = create_edge_text(create_node_text(issue_key, fields),
-                                    create_node_text(linked_issue_key, linked_issue['fields']),
-                                    edge_options)
+            edge_nodes = [create_node_text(issue_key, fields),
+                          create_node_text(linked_issue_key, linked_issue['fields'])]
+
+            # orient blockers as dependencies (toward end of graph)
+            if link_type in ["blocks", "is blocking", "is blocked by"]:
+                edge_options['dir'] = 'back'
+                edge_nodes.reverse()
+
+            edge = create_edge_text(edge_nodes[0], edge_nodes[1], edge_options)
 
         return linked_issue_key, edge
 
