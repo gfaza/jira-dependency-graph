@@ -243,7 +243,12 @@ Things included in these changes:
     --depth-limit=<some-int>
     ```
 
-13. Graph configuration yaml:  A default yaml will be generated along with the `personal-config.ini`, as a template for customizing the color scheme and other elements of the graphs.  be sure to keep the org name in sync with your `personal-config.ini`.  e.g., if your `personal-config.ini` section reads `[EXAMPLE]`, then the corresponding yaml file must be named `example-config.yml`.
+13. New command line option: Direction in which sequential nodes will be rendered, with a default of "TB" (Top to Bottom).
+    ```bash
+    --graph-rank-direction=<TB|LR|BT|RL>
+    ```
+
+14. Graph configuration yaml:  A default yaml will be generated along with the `personal-config.ini`, as a template for customizing the color scheme and other elements of the graphs.  be sure to keep the org name in sync with your `personal-config.ini`.  e.g., if your `personal-config.ini` section reads `[EXAMPLE]`, then the corresponding yaml file must be named `example-config.yml`.
     1. ***color-setting:*** The name of the Graphviz color scheme to use (https://graphviz.org/doc/info/colors.html), and the ordered list of colors to use when rendering issues, as they progress through their given workflow.
        1. e.g., `color-setting: { color-scheme: set16, fill-colors: [1, 5, 6, 3, 2, 4] }` would produce graphs in (close to) pride colors.
     2. ***nodes:*** Customizations for rendering Epics and Labels (optionally included in diagrams).
