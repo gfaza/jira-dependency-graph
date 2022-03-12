@@ -610,6 +610,7 @@ def parse_args(choice_of_org=None):
     parser.add_argument('--include-state', dest='include_state', action='store_true', default=False, help='Include issue state')
     parser.add_argument('--include-labels', dest='include_labels', action='store_true', default=False, help='Include issue labels')
     parser.add_argument('--include-arguments', dest='include_arguments', action='store_true', default=False, help='Include graph arguments')
+    parser.add_argument('--graph-rank-direction', dest='graph_rank_direction', default='TB', help='Graph rank direction')
     parser.add_argument('-iu', '--issue-update', dest='issue_update', default='', help='Update issue description graph')
     parser.add_argument('--no-verify-ssl', dest='no_verify_ssl', default=False, action='store_true', help='Don\'t verify SSL certs for requests')
     parser.add_argument('issues', nargs='*', help='The issue key (e.g. JRADEV-1107, JRADEV-1391)')
@@ -755,7 +756,7 @@ def main():
                                                    node_edge_options)
                 graph.append(label_edge_text)
 
-    graph_attributes = {}
+    graph_attributes = {'rankdir': options.graph_rank_direction}
     if 'graph_arguments' in elements_to_include:
         graph_attributes.update({'labelloc': 't', 'labeljust': 'c',
                                  'label': format(' '.join(sys.argv[1:]).replace('"', '\\"').replace("'", "\'"))})
