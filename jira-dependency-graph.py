@@ -630,7 +630,7 @@ def parse_args(choice_of_org=None):
     parser.add_argument('-T', '--dont-traverse', dest='traverse', action='store_false', default=True, help='Do not traverse to other projects')
     parser.add_argument('-w', '--word-wrap', dest='word_wrap', default=False, action='store_true', help='Word wrap issue summaries instead of truncating them')
     parser.add_argument('-dl', '--depth-limit', dest='depth_limit', default=None, help='Link depth limit', type=int)
-    parser.add_argument('--html-stylize', dest='html_stylize', action='store_true', default=False, help='Stylize with HTML labels')
+    parser.add_argument('--html-stylize', dest='html_stylize', action='store_true', default=True, help='Stylize with HTML labels')
     parser.add_argument('--include-state', dest='include_state', action='store_true', default=False, help='Include issue state')
     parser.add_argument('--include-assignee', dest='include_assignee', action='store_true', default=False, help='Include issue assignee')
     parser.add_argument('--include-labels', dest='include_labels', action='store_true', default=False, help='Include issue labels')
