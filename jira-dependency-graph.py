@@ -261,7 +261,7 @@ class GraphConfig:
 
 def build_graph_data(start_issue_key, jira, excludes, show_directions, directions, includes, issue_excludes,
                      ignore_closed, ignore_epic, ignore_subtasks, traverse, word_wrap, search_depth_limit, elements_to_include,
-                     graph_config, card_levels):
+                     style_options, graph_config, card_levels):
     """ Given a starting image key and the issue-fetching function build up the GraphViz data representing relationships
         between issues. This will consider both subtasks and issue links.
     """
@@ -308,7 +308,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             if len(summary) > MAX_SUMMARY_LENGTH + 2:
                 summary = fields['summary'][:MAX_SUMMARY_LENGTH] + '...'
         summary = summary.replace('"', '\\"')
-        html_nodes = True
+        html_nodes = style_options.get('html_stylize', false)
         if html_nodes:
             summary = summary.replace('\n', '<br/>')
             if 'state' in elements_to_include:
@@ -624,6 +624,7 @@ def parse_args(choice_of_org=None):
     parser.add_argument('-T', '--dont-traverse', dest='traverse', action='store_false', default=True, help='Do not traverse to other projects')
     parser.add_argument('-w', '--word-wrap', dest='word_wrap', default=False, action='store_true', help='Word wrap issue summaries instead of truncating them')
     parser.add_argument('-dl', '--depth-limit', dest='depth_limit', default=None, help='Link depth limit', type=int)
+    parser.add_argument('--html-stylize', dest='html_stylize', action='store_true', default=False, help='Stylize with HTML labels')
     parser.add_argument('--include-state', dest='include_state', action='store_true', default=False, help='Include issue state')
     parser.add_argument('--include-assignee', dest='include_assignee', action='store_true', default=False, help='Include issue assignee')
     parser.add_argument('--include-labels', dest='include_labels', action='store_true', default=False, help='Include issue labels')
@@ -690,6 +691,10 @@ def main():
     if options.include_arguments:
         elements_to_include.append('graph_arguments')
 
+    style_options = {}
+    if options.html_stylize:
+        style_options['html_stylize'] = true
+
     try:
         with open('/config/{}-config.yml'.format(options.org.lower()), 'r') as file:
             color_config = yaml.safe_load(file)
@@ -709,7 +714,7 @@ def main():
         (g, s, l) = build_graph_data(issue, jira, options.excludes, options.show_directions, options.directions,
                                          options.includes, options.issue_excludes, options.closed, options.ignore_epic,
                                          options.ignore_subtasks, options.traverse, options.word_wrap, walk_depth_limit,
-                                         elements_to_include, graph_config, card_levels)
+                                         elements_to_include, style_options, graph_config, card_levels)
         graph = graph + g
         seen = seen + s
 
