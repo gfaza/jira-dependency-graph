@@ -312,10 +312,16 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         if html_nodes:
             summary = summary.replace('\n', '<br/>')
             if 'state' in elements_to_include:
-                node_label = '<<table border="0" cellspacing="0" cellpadding="3">' \
-                '<tr><td align="center"><font face="Impact">{}</font></td><td align="center"><font face="Impact">{}</font></td></tr>' \
-                '<tr><td align="center" colspan="2">{}</td></tr></table>>' \
-                    .format(issue_key, fields['status']['name'].upper(), summary)
+                if 'assignee' in elements_to_include:
+                    node_label = '<<table border="0" cellspacing="0" cellpadding="3">' \
+                                 '<tr><td align="center"><font face="Impact">{}</font></td><td align="center"><font face="Impact">{}</font></td><td align="center"><font face="Impact">{}</font></td></tr>' \
+                                 '<tr><td align="center" colspan="3">{}</td></tr></table>>' \
+                        .format(issue_key, fields['status']['name'].upper(), fields['assignee'].get('emailAddress', '')[:2].upper(), summary)
+                else:
+                    node_label = '<<table border="0" cellspacing="0" cellpadding="3">' \
+                    '<tr><td align="center"><font face="Impact">{}</font></td><td align="center"><font face="Impact">{}</font></td></tr>' \
+                    '<tr><td align="center" colspan="2">{}</td></tr></table>>' \
+                        .format(issue_key, fields['status']['name'].upper(), summary)
             else:
                 node_label = '<<table border="0" cellspacing="0" cellpadding="2">' \
                 '<tr><td align="center"><font face="Impact">{}</font></td></tr>' \
