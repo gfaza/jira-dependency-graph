@@ -308,25 +308,43 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             if len(summary) > MAX_SUMMARY_LENGTH + 2:
                 summary = fields['summary'][:MAX_SUMMARY_LENGTH] + '...'
         summary = summary.replace('"', '\\"')
-        html_nodes = style_options.get('html_stylize', false)
+        html_nodes = style_options.get('html_stylize', False)
         if html_nodes:
             summary = summary.replace('\n', '<br/>')
+            table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
+            th_font_attributes = 'face="Impact"'
             if 'state' in elements_to_include:
-                if 'assignee' in elements_to_include:
-                    node_label = '<<table border="0" cellspacing="0" cellpadding="3">' \
-                                 '<tr><td align="center"><font face="Impact">{}</font></td><td align="center"><font face="Impact">{}</font></td><td align="center"><font face="Impact">{}</font></td></tr>' \
-                                 '<tr><td align="center" colspan="3">{}</td></tr></table>>' \
-                        .format(issue_key, fields['status']['name'].upper(), fields['assignee'].get('emailAddress', '')[:2].upper(), summary)
+                if 'assignee' in elements_to_include and fields.get('assignee') is not None:
+                    node_label = '<<table {table_attributes}>' \
+                                 '<tr>' \
+                                 '<td align="center"><font {th_font_attributes}>{issue_key}</font></td>' \
+                                 '<td align="center"><font {th_font_attributes}>{issue_state}</font></td>' \
+                                 '<td align="center"><font {th_font_attributes}>{issue_assignee}</font></td>' \
+                                 '</tr>' \
+                                 '<tr><td align="center" colspan="3">{issue_summary}</td></tr></table>>' \
+                        .format(table_attributes=table_attributes, th_font_attributes=th_font_attributes,
+                                issue_key=issue_key, issue_state=fields['status']['name'].upper(),
+                                issue_assignee=fields['assignee'].get('emailAddress', '')[:2].upper(),
+                                issue_summary=summary)
                 else:
-                    node_label = '<<table border="0" cellspacing="0" cellpadding="3">' \
-                    '<tr><td align="center"><font face="Impact">{}</font></td><td align="center"><font face="Impact">{}</font></td></tr>' \
-                    '<tr><td align="center" colspan="2">{}</td></tr></table>>' \
-                        .format(issue_key, fields['status']['name'].upper(), summary)
+                    node_label = '<<table {table_attributes}>' \
+                                 '<tr>' \
+                                 '<td align="center"><font {th_font_attributes}>{issue_key}</font></td>' \
+                                 '<td align="center"><font {th_font_attributes}>{issue_state}</font></td>' \
+                                 '</tr>' \
+                                 '<tr><td align="center" colspan="2">{issue_summary}</td></tr></table>>' \
+                        .format(table_attributes=table_attributes, th_font_attributes=th_font_attributes,
+                                issue_key=issue_key, issue_state=fields['status']['name'].upper(),
+                                issue_summary=summary)
             else:
-                node_label = '<<table border="0" cellspacing="0" cellpadding="2">' \
-                '<tr><td align="center"><font face="Impact">{}</font></td></tr>' \
-                '<tr><td align="center">{}</td></tr></table>>' \
-                    .format(issue_key, summary)
+                node_label = '<<table {table_attributes}>' \
+                             '<tr>' \
+                             '<td align="center"><font {th_font_attributes}>{issue_key}</font></td>' \
+                             '</tr>' \
+                             '<tr><td align="center" colspan="1">{issue_summary}</td></tr></table>>' \
+                    .format(table_attributes=table_attributes, th_font_attributes=th_font_attributes,
+                            issue_key=issue_key,
+                            issue_summary=summary)
         else:
             summary = summary.replace('\n', '\\n')
             if 'state' in elements_to_include:
@@ -697,9 +715,7 @@ def main():
     if options.include_arguments:
         elements_to_include.append('graph_arguments')
 
-    style_options = {}
-    if options.html_stylize:
-        style_options['html_stylize'] = true
+    style_options = {'html_stylize': options.html_stylize}
 
     try:
         with open('/config/{}-config.yml'.format(options.org.lower()), 'r') as file:
