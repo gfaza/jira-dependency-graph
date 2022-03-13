@@ -223,9 +223,10 @@ Things included in these changes:
     --issue-update=<jira-card-key>
     ```
 
-9. New command line option: Include issue status/state on your node's label:
+9. New command line options: Include additional issue elements on your node's label:
     ```bash
     --include-state
+    --include-assignee
     ```
 
 10. New command line option: Include issue labels as additional nodes on the graph.  Can be a useful way of further helping the layout algorithm:

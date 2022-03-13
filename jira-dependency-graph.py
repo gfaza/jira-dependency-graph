@@ -49,7 +49,7 @@ class JiraSearch(object):
         self.url = url + '/rest/api/latest'
         self.auth = auth
         self.no_verify_ssl = no_verify_ssl
-        self.fields = ','.join(['key', 'summary', 'status', 'description', 'issuetype', 'issuelinks', 'subtasks', 'labels'])
+        self.fields = ','.join(['key', 'summary', 'status', 'description', 'issuetype', 'issuelinks', 'subtasks', 'labels', 'assignee'])
         self.issue_cache = {}
 
     def get(self, uri, params={}):
@@ -324,7 +324,10 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         else:
             summary = summary.replace('\n', '\\n')
             if 'state' in elements_to_include:
-                node_label = '{} {}\\n{}'.format(issue_key, fields['status']['name'], summary)
+                if 'assignee' in elements_to_include:
+                    node_label = '{} {} {}\\n{}'.format(issue_key, fields['status']['name'], fields['assignee'].get('emailAddress', '')[:2].upper(), summary)
+                else:
+                    node_label = '{} {}\\n{}'.format(issue_key, fields['status']['name'], summary)
             else:
                 node_label = '{}\\n{}'.format(issue_key, summary)
         return node_label
@@ -622,6 +625,7 @@ def parse_args(choice_of_org=None):
     parser.add_argument('-w', '--word-wrap', dest='word_wrap', default=False, action='store_true', help='Word wrap issue summaries instead of truncating them')
     parser.add_argument('-dl', '--depth-limit', dest='depth_limit', default=None, help='Link depth limit', type=int)
     parser.add_argument('--include-state', dest='include_state', action='store_true', default=False, help='Include issue state')
+    parser.add_argument('--include-assignee', dest='include_assignee', action='store_true', default=False, help='Include issue assignee')
     parser.add_argument('--include-labels', dest='include_labels', action='store_true', default=False, help='Include issue labels')
     parser.add_argument('--include-arguments', dest='include_arguments', action='store_true', default=False, help='Include graph arguments')
     parser.add_argument('--graph-rank-direction', dest='graph_rank_direction', default='TB', help='Graph rank direction')
@@ -681,6 +685,8 @@ def main():
         elements_to_include.append('labels')
     if options.include_state:
         elements_to_include.append('state')
+    if options.include_assignee:
+        elements_to_include.append('assignee')
     if options.include_arguments:
         elements_to_include.append('graph_arguments')
 
