@@ -1,6 +1,7 @@
 FROM python:3.6
 
 ADD jira-dependency-graph.py /jira/
+ADD check-subgraph.py /jira/
 ADD requirements.txt /jira/
 WORKDIR /jira
 RUN apt-get update \
