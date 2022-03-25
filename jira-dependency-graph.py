@@ -885,9 +885,9 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_co
     states = list(set(card_states.values()))
     epics = list(set(card_epics.values()))
     parents = list(set(card_supertasks.values()))
-    grouped_graph = [];
+    grouped_graph = []
     # subgraphs = {snake_case(k): [] for k in states}
-    subsubgraphs = {}
+    # subsubgraphs = {}
     # for state in states:
     #     subgraphs[state] = []
     log(states)
@@ -921,12 +921,17 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_co
                 if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
                     subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
 
-            if node_issue_parent == '' and node_issue_key in (
-                    list(card_epics.values()) + list(card_supertasks.values())):
-                node_issue_parent = node_issue_key
-
-            if node_issue_parent not in subsubgraphs.keys():
-                subsubgraphs[node_issue_parent] = {}
+            if node_issue_parent == '':
+                if node_issue_key in (list(card_epics.values()) + list(card_supertasks.values())):
+                    node_issue_parent = node_issue_key
+                else:
+                    # TODO: add some logic around when to/not to do this
+                    if not node_issue_parent in subgraph_tree.keys():
+                        subgraph_tree[node_issue_parent] = {}
+                    if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
+                        subgraph_tree[node_issue_parent][node_issue_card_state] = {}
+                    if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
+                        subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
 
             node_issue_subgraph_name = 'cluster_{node_issue_key}'.format(node_issue_key=snake_case(node_issue_key))
             node_issue_parent_subgraph_name = 'cluster_{node_issue_parent}_{node_issue_card_state}'.format(
@@ -951,123 +956,25 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_co
             # if node_issue_parent_subgraph_name not in subsubgraphs.keys():
             #     subsubgraphs[node_issue_parent] = {}
 
-            if node_issue_card_state not in subsubgraphs[node_issue_parent].keys():
-                subsubgraphs[node_issue_parent][node_issue_card_state] = []
-            subsubgraphs[node_issue_parent][node_issue_card_state].append(
-                '"{node_issue_key}"'.format(node_issue_key=node_issue_key))
+            # if node_issue_card_state not in subsubgraphs[node_issue_parent].keys():
+            #     subsubgraphs[node_issue_parent][node_issue_card_state] = []
+            # subsubgraphs[node_issue_parent][node_issue_card_state].append(
+            #     '"{node_issue_key}"'.format(node_issue_key=node_issue_key))
 
             log(subgraph_tree)
 
-    # for parent_key, child_states in subgraph_tree.items():
-    #     for child_state, child_keys in child_states.items():
-    #         for child_key in child_keys:
-    #             if child_key in subgraph_tree.keys():
-    #                 print("{parent_key} -> {child_state} -> {child_key}".format(parent_key=parent_key,
-    #                                                                              child_state=child_state,
-    #                                                                              child_key=child_key))
-    #                 subgraph_tree[parent_key][child_state][child_key] = subgraph_tree.pop(child_key)
+    graft_subgraph_tree_branches(subgraph_tree)
 
+    # digraph_str = 'digraph mygraph {{ rankdir="LR" ; node [shape="box"]; {subgraph_tree_str} }}'.format(
+    #     subgraph_tree_str=render_issue_subgraph(subgraph_tree)
+    # )
+    # digraph_str = re.sub(r';\s+;', ';', digraph_str)
+    subgraph_tree_str = render_issue_subgraph(subgraph_tree, graph_config)
+    subgraph_tree_str = re.sub(r';\s+;', ';', subgraph_tree_str)
+    subgraph_tree_str = '\n\n// Subgraphs:\n\n' + subgraph_tree_str
 
-    do_it_the_new_way = True
-    if do_it_the_new_way:
+    grouped_graph = [subgraph_tree_str] + grouped_graph
 
-        graft_subgraph_tree_branches(subgraph_tree)
-
-        # digraph_str = 'digraph mygraph {{ rankdir="LR" ; node [shape="box"]; {subgraph_tree_str} }}'.format(
-        #     subgraph_tree_str=render_issue_subgraph(subgraph_tree)
-        # )
-        # digraph_str = re.sub(r';\s+;', ';', digraph_str)
-        subgraph_tree_str = render_issue_subgraph(subgraph_tree, graph_config)
-        subgraph_tree_str = re.sub(r';\s+;', ';', subgraph_tree_str)
-
-        grouped_graph = [subgraph_tree_str] + grouped_graph
-    else:
-        for parent_key, child_states in subgraph_tree.items():
-            print("{parent_key} -> {child_states}".format(parent_key=parent_key, child_states=child_states))
-
-            debug_subgraphs = True
-            subgraph_attrs = {}
-            if not debug_subgraphs:
-                subgraph_attrs = {'style': 'invis'}
-            if debug_subgraphs:
-                subgraph_node_attrs = {'shape': 'rarrow'}
-            else:
-                subgraph_node_attrs = {'style': 'invis', 'shape': 'point'}
-            # subgraph_strs = ['subgraph cluster_{k} {{\n{sg_attr_str}\n{k}[{sgn_attr_str}];\n{v}\n}}'.format(
-            #     sg_attr_str=dict_to_attrs(subgraph_attrs, ';'), sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
-            #     k=k, v=(';'.join(v))) for k, v in subgraphs.items()]
-            subsubgraph_strs = []
-            log("subsubgraphs: {subsubgraphs}".format(subsubgraphs=subsubgraphs))
-            for node_issue_card_epic, node_issue_card_states in subsubgraphs.items():
-                epic_state_subgraph_names = []
-                epic_state_subgraphs = {}
-                for node_issue_card_state, node_issues in node_issue_card_states.items():
-                    ssg_key = snake_case('{epic} {state}'.format(epic=node_issue_card_epic, state=node_issue_card_state))
-                    # ssg_key = snake_case(' '.join([x for x in [node_issue_card_epic, node_issue_card_state] if x]))
-                    subgraph_name = 'cluster_{ssg_key}'.format(ssg_key=ssg_key)
-                    log("subgraph_name: {subgraph_name}, ssg_key:{ssg_key}, node_issues:{node_issues}".format(
-                        subgraph_name=subgraph_name, ssg_key=ssg_key, node_issues=';'.join(node_issues)))
-                    epic_state_subgraph_names.append(subgraph_name)
-                    epic_state_subgraphs[subgraph_name] = 'subgraph {subgraph_name} {{\n{sg_attr_str}\n{ssg_key}[{sgn_attr_str}];\n{v}\n}}'.format(
-                        sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': subgraph_name}, ';'),
-                        sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
-                        subgraph_name=subgraph_name, ssg_key=ssg_key, v=(';'.join(node_issues)))
-
-                if node_issue_card_epic:
-                    epic_subgraph_name = 'cluster_{node_issue_card_epic}'.format(
-                        node_issue_card_epic=snake_case(node_issue_card_epic))
-                    epic_subgraph = 'subgraph {epic_subgraph_name} {{\n{sg_attr_str}\n"{node_issue_card_epic}";\n{v}\n}}'.format(
-                        sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': epic_subgraph_name}, ';'),
-                        sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
-                        epic_subgraph_name=epic_subgraph_name,
-                        node_issue_card_epic=node_issue_card_epic,
-                        # v=(';'.join(epic_state_subgraph_names))
-                        v=(';'.join(list(epic_state_subgraphs.values())))
-                    )
-                    log("epic_subgraph: {epic_subgraph}".format(epic_subgraph=epic_subgraph))
-                    subsubgraph_strs = subsubgraph_strs + \
-                                       [epic_subgraph]
-                else:
-                    subsubgraph_strs = subsubgraph_strs + [';'.join(list(epic_state_subgraphs.values()))]
-
-                workflow_states = [snake_case(state) for state in graph_config.get_card_states('story')]
-                present_states = [snake_case(state) for state in node_issue_card_states.keys()]
-                present_states = list(set(workflow_states) & set(present_states))
-                log("workflow_states: {workflow_states}".format(workflow_states=workflow_states))
-                log("present_states: {present_states}".format(present_states=present_states))
-                enumerated_workflow_states = {k: v for v, k in enumerate(workflow_states)}
-                present_states.sort(key=enumerated_workflow_states.get)
-                log("present_states: {present_states}".format(present_states=present_states))
-                present_epic_states = [snake_case('{epic} {state}'.format(epic=node_issue_card_epic, state=present_state))
-                                       for present_state in present_states]
-                log("present_epic_states: {present_epic_states}".format(present_epic_states=present_epic_states))
-
-                if present_epic_states:
-                    epic_state_edge_attrs = {}
-                    if not debug_subgraphs:
-                        epic_state_edge_attrs['style'] = 'invis'
-
-                    subsubgraph_strs = subsubgraph_strs + ['//concentrate="true"',
-                                                           '{present_epic_state_edges} [{edge_attrs}]'.format(
-                                                               present_epic_state_edges=' -> '.join(present_epic_states),
-                                                               edge_attrs=dict_to_attrs(epic_state_edge_attrs))]
-                else:
-                    log('no present_epic_states at {node_issue_card_epic}'.format(
-                        node_issue_card_epic=node_issue_card_epic))
-            grouped_graph = grouped_graph + subsubgraph_strs
-            # workflow_states = [snake_case(state) for state in graph_config.get_card_states('story')]
-            # present_states = [snake_case(k) for k in states]
-            # present_states = list(set(workflow_states) & set(present_states))
-            # # log(workflow_states)
-            # # log(present_states)
-            # enumerated_workflow_states = {k: v for v, k in enumerate(workflow_states)}
-            # present_states.sort(key=enumerated_workflow_states.get)
-            #
-            # subgraph_strs = subgraph_strs + ['//concentrate="true"',
-            #                                  '{present_state_edges} [style="invis"]'.format(
-            #                                      present_state_edges=' -> '.join(present_states))]
-            #
-            # grouped_graph = grouped_graph + subgraph_strs
 
     log("subgraph_tree: {subgraph_tree}".format(subgraph_tree=subgraph_tree))
 
@@ -1078,12 +985,12 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_co
 def snake_case(k):
     return re.sub(r'[^\w]+', '_', k).lower()
 
-subgraph_tree = {'story-123': {
-    'open': {
-        'story-234': {},
-        'story-345': {}
-    }
-}}
+# subgraph_tree = {'story-123': {
+#     'open': {
+#         'story-234': {},
+#         'story-345': {}
+#     }
+# }}
 
 def render_subgraphs1(subgraph_tree, prefix=''):
     subgraph_str = ''
@@ -1099,35 +1006,35 @@ def render_subgraphs1(subgraph_tree, prefix=''):
         )
     return subgraph_str
 
-
-def render_issue_subgraph2(subgraph_tree):
-    debug_subgraphs = True
-    subgraph_attrs = {}
-    if not debug_subgraphs:
-        subgraph_attrs = {'style': 'invis'}
-    if debug_subgraphs:
-        subgraph_node_attrs = {'shape': 'rarrow'}
-    else:
-        subgraph_node_attrs = {'style': 'invis', 'shape': 'point'}
-    subgraph_str = ''
-    for issue_name, child_states in subgraph_tree.items():
-        cluster_name = snake_case(issue_name)
-        state_subgraph_strs = ''
-        for state, children in child_states.items():
-            issue_state = snake_case("{} {}".format(issue_name, state))
-            state_subgraph_strs = state_subgraph_strs + "subgraph cluster_{issue_state} {{{issue_state};\n{child_clusters}}};\n".format(
-                issue_state=issue_state,
-                issue_name=issue_name,
-                child_clusters=render_issue_subgraph2(children)
-            )
-        subgraph_str = subgraph_str + "subgraph cluster_{cluster_name} {{\n{sg_attr_str}\n\"{issue_name}\"[{sgn_attr_str}];\n;\n{child_clusters}}};\n".format(
-            cluster_name=cluster_name,
-            issue_name=issue_name,
-            child_clusters=state_subgraph_strs,
-            sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': epic_subgraph_name}, ';'),
-            sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
-        )
-    return subgraph_str
+#
+# def render_issue_subgraph2(subgraph_tree):
+#     debug_subgraphs = True
+#     subgraph_attrs = {}
+#     if not debug_subgraphs:
+#         subgraph_attrs = {'style': 'invis'}
+#     if debug_subgraphs:
+#         subgraph_node_attrs = {'shape': 'rarrow'}
+#     else:
+#         subgraph_node_attrs = {'style': 'invis', 'shape': 'point'}
+#     subgraph_str = ''
+#     for issue_name, child_states in subgraph_tree.items():
+#         cluster_name = snake_case(issue_name)
+#         state_subgraph_strs = ''
+#         for state, children in child_states.items():
+#             issue_state = snake_case("{} {}".format(issue_name, state))
+#             state_subgraph_strs = state_subgraph_strs + "subgraph cluster_{issue_state} {{{issue_state};\n{child_clusters}}};\n".format(
+#                 issue_state=issue_state,
+#                 issue_name=issue_name,
+#                 child_clusters=render_issue_subgraph2(children)
+#             )
+#         subgraph_str = subgraph_str + "subgraph cluster_{cluster_name} {{\n{sg_attr_str}\n{issue_name}\n[{sgn_attr_str}];\n{child_clusters}}};\n".format(
+#             cluster_name=cluster_name,
+#             issue_name=('"{issue_name}"'.format(issue_name) if issue_name else ''),
+#             child_clusters=state_subgraph_strs,
+#             sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': epic_subgraph_name}, ';') + ';',
+#             sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
+#         )
+#     return subgraph_str
 
 
 def render_issue_subgraph(subgraph_tree, graph_config):
@@ -1167,9 +1074,9 @@ def render_issue_subgraph(subgraph_tree, graph_config):
         state_subgraph_strs = state_subgraph_strs + present_epic_state_edges_str
 
         if state_subgraph_strs:
-            subgraph_str = subgraph_str + "subgraph {cluster_name} {{\n{sg_attr_str}\n\"{issue_name}\"\n{child_clusters}}};\n".format(
+            subgraph_str = subgraph_str + "subgraph {cluster_name} {{\n{sg_attr_str}\n{issue_name}\n{child_clusters}}};\n".format(
                 cluster_name=cluster_name,
-                issue_name=issue_name,
+                issue_name=('"{issue_name}"'.format(issue_name=issue_name) if issue_name else ''),
                 child_clusters=state_subgraph_strs,
                 sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': cluster_name}, ';'),
                 sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
@@ -1210,7 +1117,7 @@ def graft_subgraph_tree_branches(subgraph_tree):
         for child_state, child_keys in child_states.items():
             for child_key in child_keys:
                 if child_key in subgraph_tree.keys():
-                    print("{parent_key} -> {child_state} -> {child_key}".format(parent_key=parent_key,
+                    log("{parent_key} -> {child_state} -> {child_key}".format(parent_key=parent_key,
                                                                                 child_state=child_state,
                                                                                 child_key=child_key))
                     grafts.append({'parent_key': parent_key, 'child_state': child_state, 'child_key': child_key})
