@@ -30,8 +30,10 @@ from functools import lru_cache
 
 import inspect
 
+import cgi
+
 MAX_SUMMARY_LENGTH = 30
-MAX_QUERY_RESULTS = 250
+MAX_QUERY_RESULTS = 300
 
 
 def log(*args):
@@ -310,8 +312,9 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         summary = summary.replace('"', '\\"')
         html_nodes = style_options.get('html_stylize', False)
         if html_nodes:
+            summary = cgi.escape(summary)
             summary = summary.replace('\n', '<br/>')
-            summary = summary.replace('&', '&amp;')
+            # summary = summary.replace('&', '&amp;')
             table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
             th_font_attributes = 'face="Impact"'
             if 'state' in elements_to_include:
@@ -666,6 +669,7 @@ def parse_args(choice_of_org=None):
     parser.add_argument('--include-state', dest='include_state', action='store_true', default=False, help='Include issue state')
     parser.add_argument('--include-assignee', dest='include_assignee', action='store_true', default=False, help='Include issue assignee')
     parser.add_argument('--include-labels', dest='include_labels', action='store_true', default=False, help='Include issue labels')
+    parser.add_argument('--hide-label', dest='label_hide', action='append', default=[], help='Hide issue label; can be repeated for multiple labels')
     parser.add_argument('--include-arguments', dest='include_arguments', action='store_true', default=False, help='Include graph arguments')
     parser.add_argument('--graph-rank-direction', dest='graph_rank_direction', default='TB', help='Graph rank direction')
     parser.add_argument('-iu', '--issue-update', dest='issue_update', default='', help='Update issue description graph')
@@ -784,6 +788,7 @@ def main():
     if 'labels' in elements_to_include:
         node_options = {}
         node_edge_options = {}
+        label_tree = []
 
         label_node_options, label_edge_options = graph_config.get_node_options('label')
         node_options.update(label_node_options)
@@ -801,6 +806,18 @@ def main():
                                      for item in issue_labels if 'ignore' in item.keys()]:
             labels_to_consolidate.update(label_to_consolidate)
 
+        log(issue_labels)
+        # map labels to be hide
+        # labels_to_hide = [[group_item for group_item in item['hide']]
+        #                              for item in issue_labels if 'hide' in item.keys()]
+        # labels_to_hide = [l2 for l2 in l1 for l1 in hidden_labels.values() for hidden_labels in issue_labels if 'hide' in hidden_labels.keys()]
+        # labels_to_hide = [l2 for l2 in hidden_labels.values() for hidden_labels in issue_labels if 'hide' in hidden_labels.keys()]
+
+        labels_to_hide = []
+        if options.label_hide:
+            log(options.label_hide)
+            labels_to_hide = options.label_hide
+
         for issue_key, labels in seen_labels.items():
             if issue_key in cards_beyond_depth_limit:
                 continue
@@ -810,21 +827,35 @@ def main():
                 if card_label is None:
                     continue
 
-                # orient 'team' labels toward the beginning of the graph, and all other labels toward the end of the graph
+                # orient 'team' labels toward the root of the graph, and all other labels toward the leaves of the graph
 
                 label_options = node_options.copy()
                 if 'team' not in card_label:
                     label_options['orientation'] = '180'
                 label_options['href'] = jira.get_query_uri('labels in ({}) and not statusCategory = Done'.format(card_label.replace('/', ', ')))
+                # if card_label == 'calls-team/phoenix':
+                if card_label in labels_to_hide:
+                    label_options['style'] = 'invis'
                 label_node_text = '"{}"[{}]'.format(card_label, dict_to_attrs(label_options))
-                graph.append(label_node_text)
+                label_tree.append(label_node_text)
 
                 edge_nodes = ['"{}"'.format(issue_key),
                               '"{}"'.format(card_label)]
                 if 'team' in card_label:
                     edge_nodes.reverse()
-                label_edge_text = create_edge_text(edge_nodes[0], edge_nodes[1], node_edge_options)
-                graph.append(label_edge_text)
+                this_node_edge_options = node_edge_options.copy()
+                # if card_label == 'calls-team/phoenix':
+                if card_label in labels_to_hide:
+                    this_node_edge_options['style'] = 'invis'
+                label_edge_text = create_edge_text(edge_nodes[0], edge_nodes[1], this_node_edge_options)
+                label_tree.append(label_edge_text)
+
+        if label_tree:
+            # label_tree = filter_duplicates(label_tree)
+            label_tree = ['\n\n// Labels'] + sorted(set(label_tree))
+            # label_tree_str = '\n\n// Labels:\n\n' + ';\n'.join(label_tree) + '\n\n'
+            # graph.append(label_tree_str)
+            graph = label_tree + graph
 
     graph_attributes = {'rankdir': options.graph_rank_direction}
     if 'graph_arguments' in elements_to_include:
@@ -1041,12 +1072,13 @@ def render_issue_subgraph(subgraph_tree, graph_config):
     debug_subgraphs = False
     subgraph_attrs = {}
     if not debug_subgraphs:
-        subgraph_attrs = {'style': 'invis'}
+        subgraph_attrs = {'style': 'invis','weight':'5'}
     if debug_subgraphs:
         subgraph_node_attrs = {'shape': 'rarrow'}
     else:
         subgraph_node_attrs = {'style': 'invis', 'shape': 'point'}
-    subgraph_str = ''
+    # subgraph_str = ''
+    subgraph_strs = []
     for issue_name, child_states in subgraph_tree.items():
         cluster_name = snake_case('cluster_{}'.format(issue_name))
         state_subgraph_strs = ''
@@ -1074,24 +1106,27 @@ def render_issue_subgraph(subgraph_tree, graph_config):
         state_subgraph_strs = state_subgraph_strs + present_epic_state_edges_str
 
         if state_subgraph_strs:
-            subgraph_str = subgraph_str + "subgraph {cluster_name} {{\n{sg_attr_str}\n{issue_name}\n{child_clusters}}};\n".format(
+            # subgraph_str = subgraph_str + "subgraph {cluster_name} {{\n{sg_attr_str}\n{issue_name}\n{child_clusters}}};\n".format(
+            subgraph_strs.append( "subgraph {cluster_name} {{\n{sg_attr_str}\n{issue_name}\n{child_clusters}}};\n".format(
                 cluster_name=cluster_name,
                 issue_name=('"{issue_name}"'.format(issue_name=issue_name) if issue_name else ''),
                 child_clusters=state_subgraph_strs,
                 sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': cluster_name}, ';'),
                 sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
-            )
+            ))
         else:
-            subgraph_str = subgraph_str + "\n\"{issue_name}\"\n".format(
+            # subgraph_str = subgraph_str + "\n\"{issue_name}\"\n".format(
+            subgraph_strs.append( "\"{issue_name}\"".format(
                 issue_name=issue_name,
-            )
+            ))
 
-    return subgraph_str
+    return "\n".join(subgraph_strs)
 
 
 def issue_state_edges(issue_name, child_states, graph_config, debug_subgraphs):
     # workflow_states = [snake_case(state) for state in ordered_workflow_states()]
-    workflow_states = [snake_case(state) for state in graph_config.get_card_states('story')]
+    # workflow_states = [snake_case(state) for state in graph_config.get_card_states('story')]
+    workflow_states = ['open', 'ready to plan'] + [snake_case(state) for state in graph_config.get_card_states('story')]
     present_states = [snake_case(state) for state in child_states.keys()]
     present_states = list(set(workflow_states) & set(present_states))
     enumerated_workflow_states = {k: v for v, k in enumerate(workflow_states)}
