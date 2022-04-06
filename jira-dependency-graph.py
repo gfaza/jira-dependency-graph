@@ -314,7 +314,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         if html_nodes:
             summary = cgi.escape(summary)
             summary = summary.replace('\n', '<br/>')
-            # summary = summary.replace('&', '&amp;')
             table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
             th_font_attributes = 'face="Impact"'
             if 'state' in elements_to_include:
@@ -806,13 +805,6 @@ def main():
                                      for item in issue_labels if 'ignore' in item.keys()]:
             labels_to_consolidate.update(label_to_consolidate)
 
-        log(issue_labels)
-        # map labels to be hide
-        # labels_to_hide = [[group_item for group_item in item['hide']]
-        #                              for item in issue_labels if 'hide' in item.keys()]
-        # labels_to_hide = [l2 for l2 in l1 for l1 in hidden_labels.values() for hidden_labels in issue_labels if 'hide' in hidden_labels.keys()]
-        # labels_to_hide = [l2 for l2 in hidden_labels.values() for hidden_labels in issue_labels if 'hide' in hidden_labels.keys()]
-
         labels_to_hide = []
         if options.label_hide:
             log(options.label_hide)
@@ -827,13 +819,12 @@ def main():
                 if card_label is None:
                     continue
 
-                # orient 'team' labels toward the root of the graph, and all other labels toward the leaves of the graph
+                # orient 'team' labels toward the beginning of the graph, and all other labels toward the end of the graph
 
                 label_options = node_options.copy()
                 if 'team' not in card_label:
                     label_options['orientation'] = '180'
                 label_options['href'] = jira.get_query_uri('labels in ({}) and not statusCategory = Done'.format(card_label.replace('/', ', ')))
-                # if card_label == 'calls-team/phoenix':
                 if card_label in labels_to_hide:
                     label_options['style'] = 'invis'
                 label_node_text = '"{}"[{}]'.format(card_label, dict_to_attrs(label_options))
@@ -844,17 +835,13 @@ def main():
                 if 'team' in card_label:
                     edge_nodes.reverse()
                 this_node_edge_options = node_edge_options.copy()
-                # if card_label == 'calls-team/phoenix':
                 if card_label in labels_to_hide:
                     this_node_edge_options['style'] = 'invis'
                 label_edge_text = create_edge_text(edge_nodes[0], edge_nodes[1], this_node_edge_options)
                 label_tree.append(label_edge_text)
 
         if label_tree:
-            # label_tree = filter_duplicates(label_tree)
             label_tree = ['\n\n// Labels'] + sorted(set(label_tree))
-            # label_tree_str = '\n\n// Labels:\n\n' + ';\n'.join(label_tree) + '\n\n'
-            # graph.append(label_tree_str)
             graph = label_tree + graph
 
     graph_attributes = {'rankdir': options.graph_rank_direction}
@@ -1072,12 +1059,11 @@ def render_issue_subgraph(subgraph_tree, graph_config):
     debug_subgraphs = False
     subgraph_attrs = {}
     if not debug_subgraphs:
-        subgraph_attrs = {'style': 'invis','weight':'5'}
+        subgraph_attrs = {'style': 'invis', 'weight': '5'}
     if debug_subgraphs:
         subgraph_node_attrs = {'shape': 'rarrow'}
     else:
         subgraph_node_attrs = {'style': 'invis', 'shape': 'point'}
-    # subgraph_str = ''
     subgraph_strs = []
     for issue_name, child_states in subgraph_tree.items():
         cluster_name = snake_case('cluster_{}'.format(issue_name))
@@ -1106,7 +1092,6 @@ def render_issue_subgraph(subgraph_tree, graph_config):
         state_subgraph_strs = state_subgraph_strs + present_epic_state_edges_str
 
         if state_subgraph_strs:
-            # subgraph_str = subgraph_str + "subgraph {cluster_name} {{\n{sg_attr_str}\n{issue_name}\n{child_clusters}}};\n".format(
             subgraph_strs.append( "subgraph {cluster_name} {{\n{sg_attr_str}\n{issue_name}\n{child_clusters}}};\n".format(
                 cluster_name=cluster_name,
                 issue_name=('"{issue_name}"'.format(issue_name=issue_name) if issue_name else ''),
@@ -1115,7 +1100,6 @@ def render_issue_subgraph(subgraph_tree, graph_config):
                 sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
             ))
         else:
-            # subgraph_str = subgraph_str + "\n\"{issue_name}\"\n".format(
             subgraph_strs.append( "\"{issue_name}\"".format(
                 issue_name=issue_name,
             ))
@@ -1124,7 +1108,6 @@ def render_issue_subgraph(subgraph_tree, graph_config):
 
 
 def issue_state_edges(issue_name, child_states, graph_config, debug_subgraphs):
-    # workflow_states = [snake_case(state) for state in ordered_workflow_states()]
     # workflow_states = [snake_case(state) for state in graph_config.get_card_states('story')]
     workflow_states = ['open', 'ready to plan'] + [snake_case(state) for state in graph_config.get_card_states('story')]
     present_states = [snake_case(state) for state in child_states.keys()]
