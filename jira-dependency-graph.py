@@ -929,25 +929,16 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_co
 
             node_issue_parent = node_issue_card_supertask or node_issue_card_epic
 
-            if node_issue_parent:
-                if not node_issue_parent in subgraph_tree.keys():
-                    subgraph_tree[node_issue_parent] = {}
-                if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
-                    subgraph_tree[node_issue_parent][node_issue_card_state] = {}
-                if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
-                    subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
+            # if node_issue_parent == '':
+            #     if node_issue_key in (list(card_epics.values()) + list(card_supertasks.values())):
+            #         node_issue_parent = node_issue_key
 
-            if node_issue_parent == '':
-                if node_issue_key in (list(card_epics.values()) + list(card_supertasks.values())):
-                    node_issue_parent = node_issue_key
-                else:
-                    # TODO: add some logic around when to/not to do this
-                    if not node_issue_parent in subgraph_tree.keys():
-                        subgraph_tree[node_issue_parent] = {}
-                    if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
-                        subgraph_tree[node_issue_parent][node_issue_card_state] = {}
-                    if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
-                        subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
+            # build_subgraph_tree_0(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
+            #                       subgraph_tree)
+            # build_subgraph_tree_1(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
+            #                       subgraph_tree)
+            build_subgraph_tree_2(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
+                                  subgraph_tree)
 
             # node_issue_subgraph_name = 'cluster_{node_issue_key}'.format(node_issue_key=snake_case(node_issue_key))
             # node_issue_parent_subgraph_name = 'cluster_{node_issue_parent}_{node_issue_card_state}'.format(
@@ -979,6 +970,47 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_co
     graph = grouped_graph
     return graph
 
+#
+# def build_subgraph_tree_0(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
+#                           subgraph_tree):
+#     if node_issue_parent:
+#         if not node_issue_parent in subgraph_tree.keys():
+#             subgraph_tree[node_issue_parent] = {}
+#         if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
+#             subgraph_tree[node_issue_parent][node_issue_card_state] = {}
+#         if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
+#             subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
+#     if node_issue_parent == '':
+#         if node_issue_key in (list(card_epics.values()) + list(card_supertasks.values())):
+#             node_issue_parent = node_issue_key
+#         else:
+#             # TODO: add some logic around when to/not to do this
+#             if not node_issue_parent in subgraph_tree.keys():
+#                 subgraph_tree[node_issue_parent] = {}
+#             if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
+#                 subgraph_tree[node_issue_parent][node_issue_card_state] = {}
+#             if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
+#                 subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
+#
+# def build_subgraph_tree_1(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
+#                           subgraph_tree):
+#     if not node_issue_parent in subgraph_tree.keys():
+#         subgraph_tree[node_issue_parent] = {}
+#     if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
+#         subgraph_tree[node_issue_parent][node_issue_card_state] = {}
+#     if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
+#         subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
+
+def build_subgraph_tree_2(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
+                          subgraph_tree):
+    if node_issue_parent or node_issue_key not in (list(card_epics.values()) + list(card_supertasks.values())):
+        if not node_issue_parent in subgraph_tree.keys():
+            subgraph_tree[node_issue_parent] = {}
+        if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
+            subgraph_tree[node_issue_parent][node_issue_card_state] = {}
+        if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
+            subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
+
 
 def snake_case(k):
     return re.sub(r'[^\w]+', '_', k).lower()
@@ -1001,7 +1033,7 @@ def render_issue_subgraph(subgraph_tree, graph_config):
     debug_subgraphs = False
     subgraph_attrs = {}
     if not debug_subgraphs:
-        subgraph_attrs = {'style': 'invis', 'weight': '5'}
+        subgraph_attrs = {'style': 'invis'}
     if debug_subgraphs:
         subgraph_node_attrs = {'shape': 'rarrow'}
     else:
@@ -1060,7 +1092,7 @@ def issue_state_edges(issue_name, child_states, graph_config, debug_subgraphs):
                            for present_state in present_states]
     present_epic_state_edges_str = ''
     if present_epic_states:
-        epic_state_edge_attrs = {}
+        epic_state_edge_attrs = {'weight': '4'}
         if not debug_subgraphs:
             epic_state_edge_attrs['style'] = 'invis'
 
