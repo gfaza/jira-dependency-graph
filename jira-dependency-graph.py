@@ -32,6 +32,8 @@ import inspect
 
 import cgi
 
+from itertools import takewhile
+
 MAX_SUMMARY_LENGTH = 30
 MAX_QUERY_RESULTS = 300
 
@@ -810,14 +812,88 @@ def main():
             # log(options.label_hide)
             labels_to_hide = options.label_hide
 
-        for issue_key, labels in seen_labels.items():
-            if issue_key in cards_beyond_depth_limit:
-                continue
+        # log("cards_to_labels = {cards_to_labels}".format(cards_to_labels=cards_to_labels))
+        # log("labels_to_consolidate = {labels_to_consolidate}".format(labels_to_consolidate=labels_to_consolidate))
+        #
+        # cards_to_labels = {'WEB-6026': ['audio_processor', 'calls-team', 'phoenix'],
+        #                    'TECH-7035': ['calls-team', 'phoenix'], 'WEB-6022': ['audio_processor', 'phoenix'],
+        #                    'WEB-5542': ['audio_processor', 'calls-team'], 'TECH-6594': ['calls-team'],
+        #                    'TECH-7384': ['calls-team', 'expedite', 'rca'],
+        #                    'TECH-7383': ['calls-team', 'expedite', 'rca'], 'TECH-7350': ['calls-team'],
+        #                    'TECH-7349': ['calls-team'], 'TECH-7341': ['audio_processor', 'phoenix'],
+        #                    'TECH-7161': ['calls-team', 'dt-legacy', 'phoenix'], 'TECH-7153': ['calls-team'],
+        #                    'TECH-7141': ['phoenix'], 'TECH-7128': ['calls-team', 'expedite'],
+        #                    'TECH-7032': ['calls-team', 'phoenix'], 'TECH-7185': ['asr', 'calls-team', 'phoenix'],
+        #                    'TECH-7015': ['calls-team', 'phoenix'], 'TECH-7014': ['calls-team', 'phoenix'],
+        #                    'TECH-6992': ['calls-team'], 'TECH-6959': ['calls-team', 'phoenix'],
+        #                    'TECH-6925': ['calls-team', 'phoenix'], 'TECH-6895': ['calls-team', 'dt-legacy'],
+        #                    'OPS-4880': ['infra-sre-team'], 'TECH-6506': ['phoenix'], 'TECH-7411': ['phoenix'],
+        #                    'TECH-7144': ['phoenix'], 'TECH-7143': ['phoenix'], 'TECH-7142': ['phoenix'],
+        #                    'TECH-6768': ['phoenix'], 'TECH-6712': ['phoenix'], 'TECH-6685': ['phoenix', 'ringswitch'],
+        #                    'TECH-6309': ['audio_processor', 'calls-team'], 'TECH-7226': ['calls-team'],
+        #                    'TECH-6777': ['audio_processor', 'calls-team'], 'TECH-5796': ['phoenix'],
+        #                    'TECH-6510': ['calls-team'], 'STORY-11501': ['calls-team', 'phoenix'],
+        #                    'STORY-11414': ['calls-team', 'phoenix'], 'STORY-11507': ['calls-team', 'phoenix'],
+        #                    'STORY-11506': ['calls-team', 'phoenix'], 'STORY-11505': ['calls-team', 'phoenix'],
+        #                    'STORY-11504': ['calls-team', 'phoenix'], 'STORY-11503': ['calls-team', 'phoenix'],
+        #                    'STORY-11502': ['calls-team', 'phoenix'], 'STORY-11500': ['calls-team', 'phoenix'],
+        #                    'STORY-11499': ['calls-team', 'phoenix'], 'STORY-11498': ['calls-team', 'phoenix'],
+        #                    'STORY-11496': ['calls-team', 'phoenix'], 'STORY-11497': ['calls-team', 'phoenix'],
+        #                    'STORY-11345': ['calls-team', 'dt-legacy', 'phoenix'],
+        #                    'STORY-11346': ['Telecom', 'calls-team', 'dt-legacy', 'phoenix'],
+        #                    'STORY-10677': ['calls-team', 'phoenix'], 'STORY-10837': ['calls-team', 'phoenix'],
+        #                    'STORY-10134': ['calls-team', 'dt-legacy', 'phoenix'],
+        #                    'OPS-4560': ['infra-sre-team', 'unplanned']}
+        # labels_to_consolidate = {'calls-team': 'calls-team/phoenix', 'phoenix': 'calls-team/phoenix',
+        #                          'ivr-campaigns-team': 'ivr-campaigns-team/sequoia', 'telecom': 'telecom/telco',
+        #                          'telco': 'telecom/telco', 'attribution-team': 'attribution-team/mavericks',
+        #                          'mavericks': 'attribution-team/mavericks',
+        #                          'data-pipelines-team': 'data-pipelines-team/hawks',
+        #                          'earlybirds': 'integrations-team/earlybirds', 'eb': 'integrations-team/earlybirds',
+        #                          'integrations-team': 'integrations-team/earlybirds',
+        #                          'frontend-platform-team': 'frontend-platform-team', 'octothorp': 'octothorpe/hydra',
+        #                          'hydra': 'octothorpe/hydra', 'octothorpe': 'octothorpe/hydra',
+        #                          'infra-sre-team': 'infra-sre-team/infra-sre', 'infra-sre': 'infra-sre-team/infra-sre',
+        #                          'sre-team': 'infra-sre-team/infra-sre', 'platform-team': 'app-sre-team/platform-team',
+        #                          'app-sre-team': 'app-sre-team/platform-team',
+        #                          'conversation-intelligence-team': 'conversation-intelligence-team/swift',
+        #                          'swift': 'conversation-intelligence-team/swift',
+        #                          'swift-action-items': 'conversation-intelligence-team/swift',
+        #                          'ps': 'production-support/ps',
+        #                          'reporting-frontend-team': 'reporting-frontend-team/sharks',
+        #                          'sharks': 'reporting-frontend-team/sharks',
+        #                          'reporting-backend-team': 'reporting-backend-team/omega', 'rca': 'rca', 'RCA': 'rca',
+        #                          'audio_processor': None}
 
-            for card_label in labels:
-                card_label = labels_to_consolidate.get(card_label.lower(), card_label)
-                if card_label is None:
-                    continue
+        # build cards_to_labels, omitting cards outside of depth limit
+        cards_to_labels = seen_labels
+        cards_to_labels = {k: v for k,v in cards_to_labels.items() if k not in cards_beyond_depth_limit}
+        labels_to_cards = invert_dict(cards_to_labels)
+
+        # re-label as necessary
+        for label_0 in list(labels_to_cards):
+            label_1 = labels_to_consolidate.get(label_0.lower(), label_0.lower())
+            if not label_1:
+                labels_to_cards.pop(label_0)
+                continue
+            if label_0 == label_1:
+                continue
+            if not label_1 in labels_to_cards.keys():
+                labels_to_cards[label_1] = []
+            labels_to_cards[label_1] = labels_to_cards[label_1] + [k for k in labels_to_cards.pop(label_0) if k not in labels_to_cards[label_1]]
+
+
+        # for issue_key, labels in seen_labels.items():
+        # if issue_key in cards_beyond_depth_limit:
+        #     continue
+        # for card_label in labels:
+        #     card_label = labels_to_consolidate.get(card_label.lower(), card_label)
+        #     if card_label is None:
+        #         continue
+        for label, issue_keys in labels_to_cards.items():
+
+            for issue_key in issue_keys:
+                card_label = label
 
                 # orient 'team' labels toward the beginning of the graph, and all other labels toward the end of the graph
 
@@ -853,7 +929,7 @@ def main():
     default_node_attributes.update(graph_config.get_default_node_options())
 
     if graph:
-        graph = filter_duplicates(graph)
+        graph = ['\n\n// Graph'] + filter_duplicates(graph)
     group_by_state = options.employ_subgraphs
     group_by_epic = options.employ_subgraphs
     if group_by_state and group_by_epic:
@@ -955,9 +1031,12 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_co
             #         node_issue_parent_subgraph_name=node_issue_parent_subgraph_name
             #     ))
             #
-            # log(subgraph_tree)
+    # log(subgraph_tree)
 
     graft_subgraph_tree_branches(subgraph_tree)
+
+    log(subgraph_tree)
+
 
     subgraph_tree_str = render_issue_subgraph(subgraph_tree, graph_config)
     subgraph_tree_str = re.sub(r';\s+;', ';', subgraph_tree_str)
@@ -1119,7 +1198,44 @@ def graft_subgraph_tree_branches(subgraph_tree):
         subgraph_tree[graft['parent_key']][graft['child_state']][graft['child_key']] = subgraph_tree.pop(
             graft['child_key'])
 
+# path_to_root(subgraph_tree, 'TECH-6712')
+#
+# subgraph_tree = {'': {'': {'TECH-7341': {}}, 'IN PROGRESS': {'TECH-7153': {}, 'OPS-4560': {}, 'TECH-6925': {}, 'TECH-7128': {}, 'TECH-7035': {}, 'WEB-6026': {}, 'TECH-7350': {}}, 'READY TO DEPLOY': {'TECH-6895': {}, 'STORY-10134': {}, 'TECH-7349': {}}, 'ON DECK': {'STORY-11346': {}, 'OPS-4880': {}}, 'POST DEPLOY': {'WEB-6022': {}}, 'IN QA': {'STORY-11345': {}, 'TECH-7161': {}}}, 'STORY-11414': {'IN PROGRESS': {'STORY-11501': {}}, 'OPEN': {'STORY-11498': {}, 'STORY-11500': {}, 'STORY-11497': {}, 'STORY-11502': {}, 'STORY-11503': {}, 'STORY-11504': {}, 'STORY-11506': {}}, 'ON DECK': {'STORY-11499': {}, 'STORY-11507': {}}}, 'TECH-6506': {'IN QA': {'TECH-7141': {}}, 'QA COMPLETE': {'TECH-6959': {}}, 'OPEN': {'TECH-7144': {}, 'TECH-6685': {}, 'TECH-7142': {}, 'TECH-7143': {}, 'TECH-6712': {}, 'TECH-7411': {}}, 'ON DECK': {'TECH-6768': {}}}, 'TECH-6309': {'OPEN': {'TECH-6777': {}}, 'ON DECK': {'TECH-6510': {}, 'TECH-7226': {}, 'TECH-6594': {}}, 'CODE REVIEW': {'TECH-5796': {}, 'TECH-6992': {}, 'WEB-5542': {}}}, 'STORY-10677': {'IN PROGRESS': {'TECH-7032': {'ON DECK': {'TECH-7185': {}}}}, 'OPEN': {'STORY-10837': {}}}, 'TECH-7384': {'IN PROGRESS': {'TECH-7383': {}}}, 'TECH-7015': {'CODE REVIEW': {'TECH-7014': {}}}}
+#
+def path_to_root(node, key):
+    for k_name, k_tree in node.items():
+        if k_name == key:
+            return key
+        else:
+            result = path_to_root(k_tree, key)
+            if result:
+                return k_name + '_' + path_to_root(k_tree, key)
 
+# keys = ['STORY-11345', 'STORY-11346', 'TECH-7161', 'STORY-10134', 'TECH-6895']
+
+def common_path(node, keys):
+    paths = [snake_case(path_to_root(node, key)) for key in keys]
+    common_path = ''.join(c[0] for c in takewhile(lambda x: all(x[0] == y for y in x), zip(*paths)))
+    return common_path
+
+#
+# subgraph_tree = {'a':{'aa':{'aaa':{}}, 'bb':{}, 'cc':{'ccc':{}}}}
+#
+# path_to_root(subgraph_tree, 'aa')
+
+def invert_dict(d):
+    inverse = dict()
+    for key in d:
+        # Go through the list that is saved in the dict:
+        for item in d[key]:
+            # Check if in the inverted dict the key exists
+            if item not in inverse:
+                # If not create a new list
+                inverse[item] = [key]
+            else:
+                inverse[item].append(key)
+    return inverse
 
 if __name__ == '__main__':
     main()
+
