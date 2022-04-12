@@ -30,9 +30,10 @@ from functools import lru_cache
 
 import inspect
 
-import cgi
+import html
 
-from itertools import takewhile
+from helper_methods import invert_dict, common_path, path_to_root, snake_case, graft_subgraph_tree_branches,\
+    dict_to_attrs, containing_cluster
 
 MAX_SUMMARY_LENGTH = 30
 MAX_QUERY_RESULTS = 300
@@ -53,15 +54,17 @@ class JiraSearch(object):
         self.url = url + '/rest/api/latest'
         self.auth = auth
         self.no_verify_ssl = no_verify_ssl
-        self.fields = ','.join(['key', 'summary', 'status', 'description', 'issuetype', 'issuelinks', 'subtasks', 'labels', 'assignee'])
+        self.fields = ','.join(
+            ['key', 'summary', 'status', 'description', 'issuetype', 'issuelinks', 'subtasks', 'labels', 'assignee'])
         self.issue_cache = {}
 
     def get(self, uri, params={}):
-        headers = {'Content-Type' : 'application/json'}
+        headers = {'Content-Type': 'application/json'}
         url = self.url + uri
 
         if isinstance(self.auth, str):
-            return requests.get(url, params=params, cookies={'JSESSIONID': self.auth}, headers=headers, verify=self.no_verify_ssl)
+            return requests.get(url, params=params, cookies={'JSESSIONID': self.auth}, headers=headers,
+                                verify=self.no_verify_ssl)
         else:
             return requests.get(url, params=params, auth=self.auth, headers=headers, verify=(not self.no_verify_ssl))
 
@@ -76,7 +79,8 @@ class JiraSearch(object):
             ('file', (tail, open(file_attachment, 'rb'), 'image/png'))
         ]
         if isinstance(self.auth, str):
-            return requests.post(url, cookies={'JSESSIONID': self.auth}, files=files, headers=headers, verify=self.no_verify_ssl)
+            return requests.post(url, cookies={'JSESSIONID': self.auth}, files=files, headers=headers,
+                                 verify=self.no_verify_ssl)
         else:
             return requests.post(url, auth=self.auth, files=files, headers=headers, verify=(not self.no_verify_ssl))
 
@@ -88,10 +92,10 @@ class JiraSearch(object):
         url = self.url + uri
 
         if isinstance(self.auth, str):
-            return requests.put(url, cookies={'JSESSIONID': self.auth}, data=payload, headers=headers, verify=self.no_verify_ssl)
+            return requests.put(url, cookies={'JSESSIONID': self.auth}, data=payload, headers=headers,
+                                verify=self.no_verify_ssl)
         else:
             return requests.put(url, auth=self.auth, data=payload, headers=headers, verify=(not self.no_verify_ssl))
-
 
     def get_issue(self, key):
         """ Given an issue key (i.e. JRA-9) return the JSON representation of it. """
@@ -264,11 +268,13 @@ class GraphConfig:
 
 
 def build_graph_data(start_issue_key, jira, excludes, show_directions, directions, includes, issue_excludes,
-                     ignore_closed, ignore_epic, ignore_subtasks, traverse, word_wrap, search_depth_limit, elements_to_include,
+                     ignore_closed, ignore_epic, ignore_subtasks, traverse, word_wrap, search_depth_limit,
+                     elements_to_include,
                      style_options, graph_config, card_levels, card_states, card_epics, card_supertasks):
     """ Given a starting image key and the issue-fetching function build up the GraphViz data representing relationships
         between issues. This will consider both subtasks and issue links.
     """
+
     def get_key(issue):
         return issue['key']
 
@@ -314,7 +320,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         summary = summary.replace('"', '\\"')
         html_nodes = style_options.get('html_stylize', False)
         if html_nodes:
-            summary = cgi.escape(summary)
+            summary = html.escape(summary)
             summary = summary.replace('\n', '<br/>')
             table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
             th_font_attributes = 'face="Impact"'
@@ -354,7 +360,8 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             summary = summary.replace('\n', '\\n')
             if 'state' in elements_to_include:
                 if 'assignee' in elements_to_include and fields.get('assignee') is not None:
-                    node_label = '{} {} {}\\n{}'.format(issue_key, fields['status']['name'], fields['assignee'].get('emailAddress', '')[:2].upper(), summary)
+                    node_label = '{} {} {}\\n{}'.format(issue_key, fields['status']['name'],
+                                                        fields['assignee'].get('emailAddress', '')[:2].upper(), summary)
                 else:
                     node_label = '{} {}\\n{}'.format(issue_key, fields['status']['name'], summary)
             else:
@@ -540,7 +547,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                 log('issue:')
                 log(issue)
 
-
     def color_demo(graph):
         # demonstrate issue color configs
         for workflow_idx, workflow in enumerate(graph_config.workflows()):
@@ -587,7 +593,7 @@ def update_issue_graph(jira, issue_key, file_attachment_path):
         # generate the inline image markup of the newly attached image
         _, attachment_name = os.path.split(update_file_attachment_path)
         width, height = Image.open(update_file_attachment_path).size
-        image_tag = "%s|width=%d,height=%d"  % (attachment_name, width, height)
+        image_tag = "%s|width=%d,height=%d" % (attachment_name, width, height)
 
         # append or replace the description's inline image
         issue = jira.get_issue(update_issue_key)
@@ -633,7 +639,7 @@ def print_graph(graph_string):
 
 def parse_args(choice_of_org=None):
     config = configparser.ConfigParser()
-    config.read('/config/personal-config.ini')
+    config.read('./config/personal-config.ini')
     if choice_of_org is None:
         choice_of_org = config.sections()[0]
 
@@ -648,33 +654,54 @@ def parse_args(choice_of_org=None):
     parser.add_argument('-u', '--user', dest='user', default=default_user, help='Username to access JIRA')
     parser.add_argument('-p', '--password', dest='password', default=default_pass, help='Password to access JIRA')
     parser.add_argument('-c', '--cookie', dest='cookie', default=None, help='JSESSIONID session cookie value')
-    parser.add_argument('-N', '--no-auth', dest='no_auth', action='store_true', default=False, help='Use no authentication')
+    parser.add_argument('-N', '--no-auth', dest='no_auth', action='store_true', default=False,
+                        help='Use no authentication')
     parser.add_argument('-j', '--jira', dest='jira_url', default=default_host, help='JIRA Base URL (with protocol)')
     parser.add_argument('-f', '--file', dest='image_file', default='issue_graph', help='Filename to write image to')
     parser.add_argument('-l', '--local', action='store_true', default=False, help='Render graphviz code to stdout')
-    parser.add_argument('-e', '--ignore-epic', action='store_true', default=False, help='Don''t follow an Epic into it''s children issues')
-    parser.add_argument('-x', '--exclude-link', dest='excludes', default=[], action='append', help='Exclude link type(s)')
-    parser.add_argument('-ic', '--ignore-closed', dest='closed', action='store_true', default=False, help='Ignore closed issues')
+    parser.add_argument('-e', '--ignore-epic', action='store_true', default=False,
+                        help='Don''t follow an Epic into it''s children issues')
+    parser.add_argument('-x', '--exclude-link', dest='excludes', default=[], action='append',
+                        help='Exclude link type(s)')
+    parser.add_argument('-ic', '--ignore-closed', dest='closed', action='store_true', default=False,
+                        help='Ignore closed issues')
     parser.add_argument('-i', '--issue-include', dest='includes', default='', help='Include issue keys')
-    parser.add_argument('-xi', '--issue-exclude', dest='issue_excludes', action='append', default=[], help='Exclude issue keys; can be repeated for multiple issues')
-    parser.add_argument('-s', '--show-directions', dest='show_directions', default=['inward', 'outward'], help='which directions to show (inward, outward)')
-    parser.add_argument('-d', '--directions', dest='directions', default=['inward', 'outward'], help='which directions to walk (inward, outward)')
-    parser.add_argument('--jql', dest='jql_query', default=None, help='JQL search for issues (e.g. \'project = JRADEV\')')
-    parser.add_argument('-ns', '--node-shape', dest='node_shape', default='box', help='which shape to use for nodes (circle, box, ellipse, etc)')
-    parser.add_argument('-t', '--ignore-subtasks', action='store_true', default=False, help='Don''t include sub-tasks issues')
-    parser.add_argument('-T', '--dont-traverse', dest='traverse', action='store_false', default=True, help='Do not traverse to other projects')
-    parser.add_argument('-w', '--word-wrap', dest='word_wrap', default=False, action='store_true', help='Word wrap issue summaries instead of truncating them')
+    parser.add_argument('-xi', '--issue-exclude', dest='issue_excludes', action='append', default=[],
+                        help='Exclude issue keys; can be repeated for multiple issues')
+    parser.add_argument('-s', '--show-directions', dest='show_directions', default=['inward', 'outward'],
+                        help='which directions to show (inward, outward)')
+    parser.add_argument('-d', '--directions', dest='directions', default=['inward', 'outward'],
+                        help='which directions to walk (inward, outward)')
+    parser.add_argument('--jql', dest='jql_query', default=None,
+                        help='JQL search for issues (e.g. \'project = JRADEV\')')
+    parser.add_argument('-ns', '--node-shape', dest='node_shape', default='box',
+                        help='which shape to use for nodes (circle, box, ellipse, etc)')
+    parser.add_argument('-t', '--ignore-subtasks', action='store_true', default=False,
+                        help='Don''t include sub-tasks issues')
+    parser.add_argument('-T', '--dont-traverse', dest='traverse', action='store_false', default=True,
+                        help='Do not traverse to other projects')
+    parser.add_argument('-w', '--word-wrap', dest='word_wrap', default=False, action='store_true',
+                        help='Word wrap issue summaries instead of truncating them')
     parser.add_argument('-dl', '--depth-limit', dest='depth_limit', default=None, help='Link depth limit', type=int)
-    parser.add_argument('--html-stylize', dest='html_stylize', action='store_true', default=False, help='Stylize with HTML labels')
-    parser.add_argument('--employ-subgraphs', dest='employ_subgraphs', action='store_true', default=False, help='Group cards by parent and state')
-    parser.add_argument('--include-state', dest='include_state', action='store_true', default=False, help='Include issue state')
-    parser.add_argument('--include-assignee', dest='include_assignee', action='store_true', default=False, help='Include issue assignee')
-    parser.add_argument('--include-labels', dest='include_labels', action='store_true', default=False, help='Include issue labels')
-    parser.add_argument('--hide-label', dest='label_hide', action='append', default=[], help='Hide issue label; can be repeated for multiple labels')
-    parser.add_argument('--include-arguments', dest='include_arguments', action='store_true', default=False, help='Include graph arguments')
-    parser.add_argument('--graph-rank-direction', dest='graph_rank_direction', default='TB', help='Graph rank direction')
+    parser.add_argument('--html-stylize', dest='html_stylize', action='store_true', default=False,
+                        help='Stylize with HTML labels')
+    parser.add_argument('--employ-subgraphs', dest='employ_subgraphs', action='store_true', default=False,
+                        help='Group cards by parent and state')
+    parser.add_argument('--include-state', dest='include_state', action='store_true', default=False,
+                        help='Include issue state')
+    parser.add_argument('--include-assignee', dest='include_assignee', action='store_true', default=False,
+                        help='Include issue assignee')
+    parser.add_argument('--include-labels', dest='include_labels', action='store_true', default=False,
+                        help='Include issue labels')
+    parser.add_argument('--hide-label', dest='label_hide', action='append', default=[],
+                        help='Hide issue label; can be repeated for multiple labels')
+    parser.add_argument('--include-arguments', dest='include_arguments', action='store_true', default=False,
+                        help='Include graph arguments')
+    parser.add_argument('--graph-rank-direction', dest='graph_rank_direction', default='TB',
+                        help='Graph rank direction')
     parser.add_argument('-iu', '--issue-update', dest='issue_update', default='', help='Update issue description graph')
-    parser.add_argument('--no-verify-ssl', dest='no_verify_ssl', default=False, action='store_true', help='Don\'t verify SSL certs for requests')
+    parser.add_argument('--no-verify-ssl', dest='no_verify_ssl', default=False, action='store_true',
+                        help='Don\'t verify SSL certs for requests')
     parser.add_argument('issues', nargs='*', help='The issue key (e.g. JRADEV-1107, JRADEV-1391)')
     return parser.parse_args()
 
@@ -683,11 +710,16 @@ def filter_duplicates(lst):
     # Enumerate the list to restore order lately; reduce the sorted list; restore order
     def append_unique(acc, item):
         return acc if acc[-1][1] == item[1] else acc.append(item) or acc
+
     srt_enum = sorted(enumerate(lst), key=lambda i_val: i_val[1])
     return [item[1] for item in sorted(reduce(append_unique, srt_enum, [srt_enum[0]]))]
 
-def dict_to_attrs(dict, delimiter=','):
-    return delimiter.join([( ('{}="{}"', '{}={}')[k=='label' and v.startswith('<<')]).format(k, v) for k, v in dict.items() if k != 'name'])
+#
+# def dict_to_attrs(dict, delimiter=','):
+#     return delimiter.join(
+#         [(('{}="{}"', '{}={}')[k == 'label' and v.startswith('<<')]).format(k, v) for k, v in dict.items() if
+#          k != 'name'])
+
 
 def create_edge_text(source_node_text, destination_node_text, edge_options={}):
     edge = '{}->{}[{}]'.format(
@@ -696,9 +728,10 @@ def create_edge_text(source_node_text, destination_node_text, edge_options={}):
         dict_to_attrs(edge_options))
     return edge
 
+
 def main():
     config = configparser.ConfigParser()
-    config.read('/config/personal-config.ini')
+    config.read('./config/personal-config.ini')
 
     # parse args as if for default org.  if parsed org is not the default org, then re-parse
     options = parse_args()
@@ -714,9 +747,9 @@ def main():
     else:
         # Basic Auth is usually easier for scripts like this to deal with than Cookies.
         user = options.user if options.user is not None \
-                    else input('Username: ')
+            else input('Username: ')
         password = options.password if options.password is not None \
-                    else getpass.getpass('Password: ')
+            else getpass.getpass('Password: ')
         auth = (user, password)
 
     jira = JiraSearch(options.jira_url, auth, options.no_verify_ssl)
@@ -737,7 +770,7 @@ def main():
     style_options = {'html_stylize': options.html_stylize}
 
     try:
-        with open('/config/{}-config.yml'.format(options.org.lower()), 'r') as file:
+        with open('./config/{}-config.yml'.format(options.org.lower()), 'r') as file:
             color_config = yaml.safe_load(file)
     except FileNotFoundError:
         color_config = {}
@@ -756,9 +789,10 @@ def main():
 
     for issue in (x for x in options.issues if x not in seen and x not in options.issue_excludes):
         (g, s, l) = build_graph_data(issue, jira, options.excludes, options.show_directions, options.directions,
-                                         options.includes, options.issue_excludes, options.closed, options.ignore_epic,
-                                         options.ignore_subtasks, options.traverse, options.word_wrap, walk_depth_limit,
-                                         elements_to_include, style_options, graph_config, card_levels, card_states, card_epics, card_supertasks)
+                                     options.includes, options.issue_excludes, options.closed, options.ignore_epic,
+                                     options.ignore_subtasks, options.traverse, options.word_wrap, walk_depth_limit,
+                                     elements_to_include, style_options, graph_config, card_levels, card_states,
+                                     card_epics, card_supertasks)
         graph = graph + g
         seen = seen + s
 
@@ -770,7 +804,8 @@ def main():
     cards_beyond_depth_limit = []
     if options.depth_limit is not None:
         cards_beyond_depth_limit = [k for k, depth in card_levels.items() if depth > options.depth_limit]
-        graph = [line for line in graph if all('"{}"'.format(issue_key) not in line for issue_key in cards_beyond_depth_limit)]
+        graph = [line for line in graph if
+                 all('"{}"'.format(issue_key) not in line for issue_key in cards_beyond_depth_limit)]
 
         # render cards outside of the initial depth, a little smaller
         depth_relative_node_graph = []
@@ -785,7 +820,7 @@ def main():
             depth_relative_node_graph.append(line)
         graph = depth_relative_node_graph
 
-
+    labels_to_cards = {}
     if 'labels' in elements_to_include:
         node_options = {}
         node_edge_options = {}
@@ -867,7 +902,7 @@ def main():
 
         # build cards_to_labels, omitting cards outside of depth limit
         cards_to_labels = seen_labels
-        cards_to_labels = {k: v for k,v in cards_to_labels.items() if k not in cards_beyond_depth_limit}
+        cards_to_labels = {k: v for k, v in cards_to_labels.items() if k not in cards_beyond_depth_limit}
         labels_to_cards = invert_dict(cards_to_labels)
 
         # re-label as necessary
@@ -880,8 +915,8 @@ def main():
                 continue
             if not label_1 in labels_to_cards.keys():
                 labels_to_cards[label_1] = []
-            labels_to_cards[label_1] = labels_to_cards[label_1] + [k for k in labels_to_cards.pop(label_0) if k not in labels_to_cards[label_1]]
-
+            labels_to_cards[label_1] = labels_to_cards[label_1] + [k for k in labels_to_cards.pop(label_0) if
+                                                                   k not in labels_to_cards[label_1]]
 
         # for issue_key, labels in seen_labels.items():
         # if issue_key in cards_beyond_depth_limit:
@@ -900,7 +935,8 @@ def main():
                 label_options = node_options.copy()
                 if 'team' not in card_label:
                     label_options['orientation'] = '180'
-                label_options['href'] = jira.get_query_uri('labels in ({}) and not statusCategory = Done'.format(card_label.replace('/', ', ')))
+                label_options['href'] = jira.get_query_uri(
+                    'labels in ({}) and not statusCategory = Done'.format(card_label.replace('/', ', ')))
                 if card_label in labels_to_hide:
                     label_options['style'] = 'invis'
                 label_node_text = '"{}"[{}]'.format(card_label, dict_to_attrs(label_options))
@@ -933,7 +969,7 @@ def main():
     group_by_state = options.employ_subgraphs
     group_by_epic = options.employ_subgraphs
     if group_by_state and group_by_epic:
-        graph = generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_config)
+        graph = generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph, graph_config)
 
     graph_string = create_graph_string(graph, graph_attributes, default_node_attributes)
 
@@ -957,7 +993,7 @@ def main():
                 issues_str = 'graph'
             timestamp_str = datetime.now().isoformat(timespec='seconds').translate({ord(c): None for c in ":-"})
             image_filename = issues_str + '.graph.' + timestamp_str
-        image_filename = '/out/' + image_filename
+        image_filename = './out/' + image_filename
 
         create_graph_images(graph_string, image_filename)
         if options.issue_update:
@@ -973,7 +1009,7 @@ def main():
             update_issue_graph(jira, options.issue_update, file_attachment_path)
 
 
-def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_config):
+def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph, graph_config):
     # log(card_states.values())
     # log(set(card_states.values()))
 
@@ -1035,10 +1071,36 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_co
 
     graft_subgraph_tree_branches(subgraph_tree)
 
-    log(subgraph_tree)
+    # log(subgraph_tree)
+    # log(labels_to_cards)
 
+    labels_to_paths = {label: common_path(subgraph_tree, keys) for label, keys in labels_to_cards.items()}
 
-    subgraph_tree_str = render_issue_subgraph(subgraph_tree, graph_config)
+    # log(labels_to_paths)
+    paths_to_labels = invert_dict(labels_to_paths)
+    # log(paths_to_labels)
+
+    # log(f'paths_to_labels: {paths_to_labels}')
+    clusters_to_labels = {}
+    for k, v in paths_to_labels.items():
+        # log(f"k: {k}")
+        # log(f"containing_cluster(k): {containing_cluster(k)}")
+        clusters_to_labels[containing_cluster(k)] = v
+
+    # log(f"clusters_to_labels: {clusters_to_labels}")
+    # for path, labels in paths_to_labels.items():
+    #     log("path: {path}".format(path=path))
+    #     path_parts = path.split('|')
+    #     node = subgraph_tree
+    #     for path_part in path_parts:
+    #         log("path_part: {path_part}, subgraph_tree.keys(): {keys}".format(path_part=path_part, keys=subgraph_tree.keys()))
+    #         path_part_key = next(key for key in node.keys() if snake_case(key) == path_part)
+    #         node = node[path_part_key]
+    #     for label in labels:
+    #         node[label] = {}
+
+    # subgraph_tree_str = render_issue_subgraph(subgraph_tree, paths_to_labels, graph_config)
+    subgraph_tree_str = render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config)
     subgraph_tree_str = re.sub(r';\s+;', ';', subgraph_tree_str)
     subgraph_tree_str = '\n\n// Subgraphs:\n\n' + subgraph_tree_str
 
@@ -1048,6 +1110,7 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, graph, graph_co
 
     graph = grouped_graph
     return graph
+
 
 #
 # def build_subgraph_tree_0(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
@@ -1091,9 +1154,6 @@ def build_subgraph_tree_2(card_epics, card_supertasks, node_issue_card_state, no
             subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
 
 
-def snake_case(k):
-    return re.sub(r'[^\w]+', '_', k).lower()
-
 def render_subgraphs1(subgraph_tree, prefix=''):
     subgraph_str = ''
     for parent_name, child_nodes in subgraph_tree.items():
@@ -1108,7 +1168,12 @@ def render_subgraphs1(subgraph_tree, prefix=''):
         )
     return subgraph_str
 
-def render_issue_subgraph(subgraph_tree, graph_config):
+
+# def render_issue_subgraph(subgraph_tree, paths_to_labels, graph_config):
+def render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config):
+    # log("subgraph_tree = {subgraph_tree}".format(subgraph_tree=subgraph_tree))
+    # log("paths_to_labels = {paths_to_labels}".format(paths_to_labels=paths_to_labels))
+    # log(f"clusters_to_labels = {clusters_to_labels}")
     debug_subgraphs = False
     subgraph_attrs = {}
     if not debug_subgraphs:
@@ -1120,16 +1185,28 @@ def render_issue_subgraph(subgraph_tree, graph_config):
     subgraph_strs = []
     for issue_name, child_states in subgraph_tree.items():
         cluster_name = snake_case('cluster_{}'.format(issue_name))
+        cluster_path = snake_case(issue_name)
+        # cluster_labels = paths_to_labels.get(cluster_path, [])
+        cluster_labels = clusters_to_labels.get(cluster_name, [])
+        # log(f'cluster_name: {cluster_name}')
+        # log(f'clusters_to_labels.get(cluster_name, []): {cluster_labels}')
         state_subgraph_strs = ''
         state_subgraph_points = []
         for state, children in child_states.items():
             issue_state = snake_case("{} {}".format(issue_name, state))
             state_cluster_name = snake_case('cluster_{}'.format(issue_state))
-            state_subgraph_strs = state_subgraph_strs + "subgraph {state_cluster_name} {{\n{sg_attr_str}\n{issue_state}[{sgn_attr_str}];\n{child_clusters}}};\n".format(
+            # log(f'state_cluster_name: {state_cluster_name}')
+            state_cluster_labels = clusters_to_labels.get(state_cluster_name, [])
+            # log(f'clusters_to_labels.get(cluster_labels, []): {state_cluster_labels}')
+            # state_cluster_path = snake_case(issue_state)
+            # state_cluster_labels = paths_to_labels.get(state_cluster_path,[])
+            state_cluster_label_strs = "\n".join(['"{e}"'.format(e=e) for e in state_cluster_labels if e])
+            state_subgraph_strs = state_subgraph_strs + "subgraph {state_cluster_name} {{\n{sg_attr_str}\n{issue_state}[{sgn_attr_str}];\n{child_clusters}\n}};\n".format(
                 state_cluster_name=state_cluster_name,
                 issue_state=issue_state,
-                issue_name=issue_name,
-                child_clusters=render_issue_subgraph(children, graph_config),
+                # issue_name=issue_name,
+                # child_clusters=render_issue_subgraph(children, paths_to_labels, graph_config),
+                child_clusters=render_issue_subgraph(children, clusters_to_labels, graph_config) + state_cluster_label_strs,
                 sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': state_cluster_name}, ';'),
                 sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
             )
@@ -1141,20 +1218,26 @@ def render_issue_subgraph(subgraph_tree, graph_config):
 
         #######
 
-
         state_subgraph_strs = state_subgraph_strs + present_epic_state_edges_str
 
         if state_subgraph_strs:
-            subgraph_strs.append( "subgraph {cluster_name} {{\n{sg_attr_str}\n{issue_name}\n{child_clusters}}};\n".format(
-                cluster_name=cluster_name,
-                issue_name=('"{issue_name}"'.format(issue_name=issue_name) if issue_name else ''),
-                child_clusters=state_subgraph_strs,
-                sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': cluster_name}, ';'),
-                sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
-            ))
+            # log(f'if state_subgraph_strs: {cluster_labels}')
+            elements = [issue_name if issue_name else ''] + cluster_labels
+            elements = "\n".join(['"{e}"'.format(e=e) for e in elements if e])
+            subgraph_strs.append(
+                "subgraph {cluster_name} {{\n{sg_attr_str}\n{issue_name}\n{child_clusters}\n}};\n".format(
+                    cluster_name=cluster_name,
+                    issue_name=elements,
+                    child_clusters=state_subgraph_strs,
+                    sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': cluster_name}, ';'),
+                    sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
+                ))
         else:
-            subgraph_strs.append( "\"{issue_name}\"".format(
-                issue_name=issue_name,
+            # log(f'else: {cluster_labels}')
+            elements = [issue_name if issue_name else ''] + cluster_labels
+            elements = "\n".join(['"{e}"'.format(e=e) for e in elements if e])
+            subgraph_strs.append("{issue_name}".format(
+                issue_name=elements,
             ))
 
     return "\n".join(subgraph_strs)
@@ -1182,60 +1265,20 @@ def issue_state_edges(issue_name, child_states, graph_config, debug_subgraphs):
             edge_attrs=dict_to_attrs(epic_state_edge_attrs))
     return present_epic_state_edges_str
 
-def graft_subgraph_tree_branches(subgraph_tree):
-    grafts = []
-    for parent_key, child_states in subgraph_tree.items():
-        for child_state, child_keys in child_states.items():
-            for child_key in child_keys:
-                if child_key in subgraph_tree.keys():
-                    # log("{parent_key} -> {child_state} -> {child_key}".format(parent_key=parent_key,
-                    #                                                           child_state=child_state,
-                    #                                                           child_key=child_key))
-                    grafts.append({'parent_key': parent_key, 'child_state': child_state, 'child_key': child_key})
-
-    for graft in grafts:
-        # log(graft)
-        subgraph_tree[graft['parent_key']][graft['child_state']][graft['child_key']] = subgraph_tree.pop(
-            graft['child_key'])
 
 # path_to_root(subgraph_tree, 'TECH-6712')
 #
 # subgraph_tree = {'': {'': {'TECH-7341': {}}, 'IN PROGRESS': {'TECH-7153': {}, 'OPS-4560': {}, 'TECH-6925': {}, 'TECH-7128': {}, 'TECH-7035': {}, 'WEB-6026': {}, 'TECH-7350': {}}, 'READY TO DEPLOY': {'TECH-6895': {}, 'STORY-10134': {}, 'TECH-7349': {}}, 'ON DECK': {'STORY-11346': {}, 'OPS-4880': {}}, 'POST DEPLOY': {'WEB-6022': {}}, 'IN QA': {'STORY-11345': {}, 'TECH-7161': {}}}, 'STORY-11414': {'IN PROGRESS': {'STORY-11501': {}}, 'OPEN': {'STORY-11498': {}, 'STORY-11500': {}, 'STORY-11497': {}, 'STORY-11502': {}, 'STORY-11503': {}, 'STORY-11504': {}, 'STORY-11506': {}}, 'ON DECK': {'STORY-11499': {}, 'STORY-11507': {}}}, 'TECH-6506': {'IN QA': {'TECH-7141': {}}, 'QA COMPLETE': {'TECH-6959': {}}, 'OPEN': {'TECH-7144': {}, 'TECH-6685': {}, 'TECH-7142': {}, 'TECH-7143': {}, 'TECH-6712': {}, 'TECH-7411': {}}, 'ON DECK': {'TECH-6768': {}}}, 'TECH-6309': {'OPEN': {'TECH-6777': {}}, 'ON DECK': {'TECH-6510': {}, 'TECH-7226': {}, 'TECH-6594': {}}, 'CODE REVIEW': {'TECH-5796': {}, 'TECH-6992': {}, 'WEB-5542': {}}}, 'STORY-10677': {'IN PROGRESS': {'TECH-7032': {'ON DECK': {'TECH-7185': {}}}}, 'OPEN': {'STORY-10837': {}}}, 'TECH-7384': {'IN PROGRESS': {'TECH-7383': {}}}, 'TECH-7015': {'CODE REVIEW': {'TECH-7014': {}}}}
 #
-def path_to_root(node, key):
-    for k_name, k_tree in node.items():
-        if k_name == key:
-            return key
-        else:
-            result = path_to_root(k_tree, key)
-            if result:
-                return k_name + '_' + path_to_root(k_tree, key)
 
 # keys = ['STORY-11345', 'STORY-11346', 'TECH-7161', 'STORY-10134', 'TECH-6895']
 
-def common_path(node, keys):
-    paths = [snake_case(path_to_root(node, key)) for key in keys]
-    common_path = ''.join(c[0] for c in takewhile(lambda x: all(x[0] == y for y in x), zip(*paths)))
-    return common_path
 
 #
 # subgraph_tree = {'a':{'aa':{'aaa':{}}, 'bb':{}, 'cc':{'ccc':{}}}}
 #
 # path_to_root(subgraph_tree, 'aa')
 
-def invert_dict(d):
-    inverse = dict()
-    for key in d:
-        # Go through the list that is saved in the dict:
-        for item in d[key]:
-            # Check if in the inverted dict the key exists
-            if item not in inverse:
-                # If not create a new list
-                inverse[item] = [key]
-            else:
-                inverse[item].append(key)
-    return inverse
 
 if __name__ == '__main__':
     main()
-
