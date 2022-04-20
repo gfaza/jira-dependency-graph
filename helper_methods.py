@@ -93,6 +93,22 @@ def dict_to_attrs(dict, delimiter=","):
     )
 
 
+def create_node_key(issue_key):
+    return '"{}"'.format(issue_key)
+
+
+def graphviz_node_string(node_key, node_attributes):
+    return '"{}" [{}]'.format(node_key, dict_to_attrs(node_attributes))
+
+
+def create_edge_text(source_node_text, destination_node_text, edge_options={}):
+    edge = '{}->{}[{}]'.format(
+        source_node_text,
+        destination_node_text,
+        dict_to_attrs(edge_options))
+    return edge
+
+
 def invert_dict(d):
     inverse = dict()
     for key in d:
@@ -143,13 +159,13 @@ def common_path(node, keys):
     paths = [path_to_root(node, key) for key in keys]
     # print(f'paths: {paths}')
     try:
-        common_path = "".join(
+        common_path_str = "".join(
             c[0] for c in takewhile(lambda x: all(x[0] == y for y in x), zip(*paths))
         )
     except TypeError:
-        common_path = ""
+        common_path_str = ""
 
-    return common_path
+    return common_path_str
 
 
 def graft_subgraph_tree_branches(subgraph_tree):
@@ -222,7 +238,8 @@ def render_clusters_1(clusters):
         strs.append(v.render())
     return "\n".join(strs)
 
+
 def containing_cluster(path):
     span = 2
     words = path.split("|")
-    return ['cluster_' + "_".join(words[i:i+span]) for i in range(0, len(words), span)][-1]
+    return ['cluster_' + "_".join(words[i:i + span]) for i in range(0, len(words), span)][-1]

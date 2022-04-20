@@ -32,8 +32,8 @@ import inspect
 
 import html
 
-from helper_methods import invert_dict, common_path, path_to_root, snake_case, graft_subgraph_tree_branches,\
-    dict_to_attrs, containing_cluster
+from helper_methods import invert_dict, common_path, path_to_root, snake_case, graft_subgraph_tree_branches, \
+    dict_to_attrs, containing_cluster, graphviz_node_string, create_node_key, create_edge_text
 
 MAX_SUMMARY_LENGTH = 30
 MAX_QUERY_RESULTS = 300
@@ -154,6 +154,9 @@ class JiraSearch(object):
         if 'expand' in issue.keys():
             issue.pop('expand')
 
+    def get_issue_cache(self):
+        return self.issue_cache
+
 
 class GraphConfig:
     __config_dict = None
@@ -183,6 +186,9 @@ class GraphConfig:
         color_scheme = self.color_setting().get('color-scheme', None)
         if color_scheme is not None:
             node_options['colorscheme'] = color_scheme
+
+        default_node_options, default_edge_options = self.get_node_options('default')
+        node_options.update(default_node_options)
 
         return node_options
 
@@ -269,73 +275,121 @@ class GraphConfig:
 
 def build_graph_data(start_issue_key, jira, excludes, show_directions, directions, includes, issue_excludes,
                      ignore_closed, ignore_epic, ignore_subtasks, traverse, word_wrap, search_depth_limit,
-                     elements_to_include,
-                     style_options, graph_config, card_levels, card_states, card_epics, card_supertasks):
+                     elements_to_include, style_options, graph_config, card_meta):
     """ Given a starting image key and the issue-fetching function build up the GraphViz data representing relationships
         between issues. This will consider both subtasks and issue links.
     """
 
+    card_levels = card_meta['card_levels']
+    card_states = card_meta['card_states']
+    card_epics = card_meta['card_epics']
+    card_supertasks = card_meta['card_supertasks']
+    card_labels = card_meta['card_labels']
+
     def get_key(issue):
         return issue['key']
 
-    def create_node_text(issue_key, fields, islink=True):
+    # def get_fields(issue):
+    #     return issue['fields']
+
+    def get_issuetype_name(issue):
+        return issue['fields']['issuetype']['name']
+
+    def get_status_name(issue):
+        return issue['fields']['status']['name']
+
+    def get_statuscategory_name(issue):
+        return issue['fields']['status']['statusCategory']['name']
+
+    def get_labels(issue):
+        return issue['fields']['labels'] if 'labels' in issue['fields'] else []
+
+    def get_subtasks(issue):
+        return issue['fields']['subtasks'] if 'subtasks' in issue['fields'] else []
+
+    def get_issuelinks(issue):
+        return issue['fields']['issuelinks'] if 'issuelinks' in issue['fields'] else []
+
+    def get_assignee(issue):
+        return issue['fields']['assignee']
+
+    def get_summary(issue):
+        return issue['fields']['summary']
+
+    def get_outward_issue_status_name(link):
+        return link['outwardIssue']['fields']['status']['name']
+
+    def get_inward_issue_status_name(link):
+        return link['inwardIssue']['fields']['status']['name']
+
+    # def create_node_text(issue_key, fields, islink=True):
+    def create_node_text(issue, islink=True):
+        # fields = get_fields(issue)
+        # issue_key = get_key(issue)
         if islink:
-            return '"{}"'.format(issue_key)
+            return create_node_key(get_key(issue))
 
-        node_attributes = {'href': jira.get_issue_uri(issue_key),
-                           'label': get_node_label(issue_key, fields),
-                           'style': 'filled'}
-
-        # issue-type-specific, node attributes
-
-        node_options, edge_options = graph_config.get_node_options(fields['issuetype']['name'].lower())
-        node_attributes.update(node_options)
-
-        # issue-state specific, node coloring
-
-        fill_color, font_color = graph_config.get_issue_color(fields['issuetype']['name'],
-                                                              fields['status']['name'],
-                                                              fields['status']['statusCategory']['name'])
-
-        node_attributes['fillcolor'] = fill_color
-
-        if font_color is not None:
-            node_attributes['fontcolor'] = font_color
+        # node_attributes = build_issue_node_attributes(issue_key, fields)
+        node_attributes = build_issue_node_attributes(issue)
 
         # graphviz node markup
+        return graphviz_node_string(get_key(issue), node_attributes)
 
-        return '"{}" [{}]'.format(issue_key, dict_to_attrs(node_attributes))
+    # def build_issue_node_attributes(issue_key, fields):
+    def build_issue_node_attributes(issue):
+        # fields = get_fields(issue)
+        # issue_key = get_key(issue)
+        # node_attributes = {'href': jira.get_issue_uri(issue_key),
+        #                    'label': get_node_label(issue_key, fields),
+        node_attributes = {'href': jira.get_issue_uri(get_key(issue)),
+                           'label': get_node_label(issue),
+                           'style': 'filled'}
+        # issue-type-specific, node attributes
+        node_options, edge_options = graph_config.get_node_options(get_issuetype_name(issue).lower())
+        node_attributes.update(node_options)
+        # issue-state specific, node coloring
+        fill_color, font_color = graph_config.get_issue_color(get_issuetype_name(issue),
+                                                              get_status_name(issue),
+                                                              get_statuscategory_name(issue))
+        node_attributes['fillcolor'] = fill_color
+        if font_color is not None:
+            node_attributes['fontcolor'] = font_color
+        return node_attributes
 
-    def get_node_label(issue_key, fields):
-        summary = fields['summary']
+    # def get_node_label(issue_key, fields):
+    def get_node_label(issue):
+        # fields = get_fields(issue)
+        # issue_key = get_key(issue)
+        summary = get_summary(issue)
         if word_wrap:
             if len(summary) > MAX_SUMMARY_LENGTH:
                 # split the summary into multiple lines adding a \n to each line
-                summary = textwrap.fill(fields['summary'], MAX_SUMMARY_LENGTH)
+                summary = textwrap.fill(summary, MAX_SUMMARY_LENGTH)
         else:
             # truncate long labels with "...", but only if the three dots are replacing more than two characters
             # -- otherwise the truncated label would be taking more space than the original.
             if len(summary) > MAX_SUMMARY_LENGTH + 2:
-                summary = fields['summary'][:MAX_SUMMARY_LENGTH] + '...'
-        summary = summary.replace('"', '\\"')
-        html_nodes = style_options.get('html_stylize', False)
-        if html_nodes:
+                summary = summary[:MAX_SUMMARY_LENGTH] + '...'
+        # summary = summary.replace('"', '\\"')
+        if style_options.get('html_stylize', False):
             summary = html.escape(summary)
             summary = summary.replace('\n', '<br/>')
             table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
             th_font_attributes = 'face="Impact"'
+            td_font_attributes = ""
             if 'state' in elements_to_include:
-                if 'assignee' in elements_to_include and fields.get('assignee') is not None:
+                if 'assignee' in elements_to_include and get_assignee(issue) is not None:
                     node_label = '<<table {table_attributes}>' \
                                  '<tr>' \
                                  '<td align="center"><font {th_font_attributes}>{issue_key}</font></td>' \
                                  '<td align="center"><font {th_font_attributes}>{issue_state}</font></td>' \
                                  '<td align="center"><font {th_font_attributes}>{issue_assignee}</font></td>' \
                                  '</tr>' \
-                                 '<tr><td align="center" colspan="3">{issue_summary}</td></tr></table>>' \
+                                 '<tr><td align="center" colspan="3"><font {td_font_attributes}>{issue_summary}</font></td></tr></table>>' \
                         .format(table_attributes=table_attributes, th_font_attributes=th_font_attributes,
-                                issue_key=issue_key, issue_state=fields['status']['name'].upper(),
-                                issue_assignee=fields['assignee'].get('emailAddress', '')[:2].upper(),
+                                issue_key=get_key(issue), issue_state=get_status_name(issue).upper(),
+                                issue_assignee=get_assignee(issue)['emailAddress'][:2].upper(),
+                                td_font_attributes=td_font_attributes,
                                 issue_summary=summary)
                 else:
                     node_label = '<<table {table_attributes}>' \
@@ -343,32 +397,38 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                                  '<td align="center"><font {th_font_attributes}>{issue_key}</font></td>' \
                                  '<td align="center"><font {th_font_attributes}>{issue_state}</font></td>' \
                                  '</tr>' \
-                                 '<tr><td align="center" colspan="2">{issue_summary}</td></tr></table>>' \
+                                 '<tr><td align="center" colspan="2"><font {td_font_attributes}>{issue_summary}</font></td></tr></table>>' \
                         .format(table_attributes=table_attributes, th_font_attributes=th_font_attributes,
-                                issue_key=issue_key, issue_state=fields['status']['name'].upper(),
+                                issue_key=get_key(issue), issue_state=get_status_name(issue).upper(),
+                                td_font_attributes=td_font_attributes,
                                 issue_summary=summary)
             else:
                 node_label = '<<table {table_attributes}>' \
                              '<tr>' \
                              '<td align="center"><font {th_font_attributes}>{issue_key}</font></td>' \
                              '</tr>' \
-                             '<tr><td align="center" colspan="1">{issue_summary}</td></tr></table>>' \
+                             '<tr><td align="center" colspan="1"><font {td_font_attributes}>{issue_summary}</font></td></tr></table>>' \
                     .format(table_attributes=table_attributes, th_font_attributes=th_font_attributes,
-                            issue_key=issue_key,
+                            issue_key=get_key(issue), td_font_attributes=td_font_attributes,
                             issue_summary=summary)
         else:
+            summary = summary.replace('"', '\\"')
             summary = summary.replace('\n', '\\n')
             if 'state' in elements_to_include:
-                if 'assignee' in elements_to_include and fields.get('assignee') is not None:
-                    node_label = '{} {} {}\\n{}'.format(issue_key, fields['status']['name'],
-                                                        fields['assignee'].get('emailAddress', '')[:2].upper(), summary)
+                if 'assignee' in elements_to_include and get_assignee(issue) is not None:
+                    node_label = '{} {} {}\\n{}'.format(get_key(issue), get_status_name(issue),
+                                                        get_assignee(issue)['emailAddress'][:2].upper(), summary)
                 else:
-                    node_label = '{} {}\\n{}'.format(issue_key, fields['status']['name'], summary)
+                    node_label = '{} {}\\n{}'.format(get_key(issue), get_status_name(issue), summary)
             else:
-                node_label = '{}\\n{}'.format(issue_key, summary)
+                node_label = '{}\\n{}'.format(get_key(issue), summary)
         return node_label
 
-    def process_link(fields, issue_key, link):
+    # def process_link(fields, issue_key, link):
+    def process_link(issue, link):
+        # fields = get_fields(issue)
+        issue_key = get_key(issue)
+
         if 'outwardIssue' in link:
             direction = 'outward'
         elif 'inwardIssue' in link:
@@ -388,10 +448,10 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         link_type = link['type'][direction]
 
         if ignore_closed:
-            if ('inwardIssue' in link) and (link['inwardIssue']['fields']['status']['name'] in 'Closed'):
+            if ('inwardIssue' in link) and (get_inward_issue_status_name(link) in 'Closed'):
                 log('Skipping ' + linked_issue_key + ' - linked key is Closed')
                 return
-            if ('outwardIssue' in link) and (link['outwardIssue']['fields']['status']['name'] in 'Closed'):
+            if ('outwardIssue' in link) and (get_outward_issue_status_name(link) in 'Closed'):
                 log('Skipping ' + linked_issue_key + ' - linked key is Closed')
                 return
 
@@ -407,15 +467,14 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         edge_options = {'label': link_type}
         if link_type in ["blocks", "is blocking", "is blocked by"]:
             edge_options.update(graph_config.get_edge_options('block'))
-            if fields['status']['statusCategory']['name'].upper() == 'DONE':
+            if get_statuscategory_name(issue).upper() == 'DONE':
                 edge_options.update({'color': 'black'})
 
         if direction not in show_directions:
             edge = None
         else:
-            # log("Linked issue summary " + linked_issue['fields']['summary'])
-            edge_nodes = [create_node_text(issue_key, fields),
-                          create_node_text(linked_issue_key, linked_issue['fields'])]
+            edge_nodes = [create_node_key(issue_key),
+                          create_node_key(linked_issue_key)]
 
             # orient blockers as dependencies (away from graph root)
             if link_type in ["blocks", "is blocking", "is blocked by"]:
@@ -433,7 +492,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
     # since the graph can be cyclic we need to prevent infinite recursion
     seen = []
-    seen_labels = {}
+    # card_labels = {}
 
     sanity_check_issue_cache = False
 
@@ -444,10 +503,12 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         issue_cache_sanity_check(issue_key)
         issue = jira.issue_cache_get(issue_key)
 
-        fields = issue['fields']
+        # fields = get_fields(issue)
         seen.append(issue_key)
 
-        if ignore_closed and (fields['status']['name'] in 'Closed'):
+        issue_status_name = get_status_name(issue)
+
+        if ignore_closed and (issue_status_name in 'Closed'):
             log('Skipping ' + issue_key + ' - it is Closed')
             return graph
 
@@ -455,10 +516,12 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             log('Skipping ' + issue_key + ' - not traversing to a different project')
             return graph
 
-        graph.append(create_node_text(issue_key, fields, islink=False))
+        # graph.append(create_node_text(issue_key, fields, islink=False))
+        graph.append(create_node_text(issue, islink=False))
 
-        if 'labels' in elements_to_include and ('labels' in fields.keys()):
-            seen_labels[issue_key] = fields['labels']
+        # if 'labels' in elements_to_include and ('labels' in fields.keys()):
+        if 'labels' in elements_to_include:
+            card_labels[issue_key] = get_labels(issue)
 
         if remaining_depth_limit is not None:
             # update issue depth to the minimum depth observed
@@ -470,13 +533,14 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             if remaining_depth_limit < 0:
                 return graph
 
-        if fields['issuetype']['name'] != 'Epic':
-            card_states[issue_key] = fields['status']['name'].upper()
+        issuetype_name = get_issuetype_name(issue)
+        if issuetype_name != 'Epic':
+            card_states[issue_key] = issue_status_name.upper()
 
         children = []
 
         if not ignore_subtasks:
-            if fields['issuetype']['name'] == 'Epic' and not ignore_epic:
+            if issuetype_name == 'Epic' and not ignore_epic:
                 if ignore_closed:
                     issues = jira.query('"Epic Link" = "%s" AND status != Closed' % issue_key)
                 else:
@@ -485,8 +549,8 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                     subtask_key = get_key(subtask)
 
                     log(issue_key + ' => has issue => ' + subtask_key)
-                    edge = create_edge_text(create_node_text(issue_key, fields),
-                                            create_node_text(subtask_key, subtask['fields']),
+                    edge = create_edge_text(create_node_key(issue_key),
+                                            create_node_key(subtask_key),
                                             graph_config.get_edge_options('epic'))
 
                     graph.append(edge)
@@ -497,29 +561,30 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                     issue_cache_sanity_check(subtask)
                     jira.issue_cache_set(subtask)
 
-            if 'subtasks' in fields and not ignore_subtasks:
-                for subtask in fields['subtasks']:
+            if not ignore_subtasks:
+                for subtask in get_subtasks(issue):
                     subtask_key = get_key(subtask)
-                    if ignore_closed and (subtask['fields']['status']['name'] in 'Closed'):
+                    if ignore_closed and (get_status_name(subtask) in 'Closed'):
                         log('Skipping Subtask ' + subtask_key + ' - it is Closed')
                         continue
                     log(issue_key + ' => has subtask => ' + subtask_key)
-                    edge = create_edge_text(create_node_text(issue_key, fields),
-                                            create_node_text(subtask_key, subtask['fields']),
+                    edge = create_edge_text(create_node_key(issue_key),
+                                            create_node_key(subtask_key),
                                             graph_config.get_edge_options('subtask'))
                     graph.append(edge)
                     children.append(subtask_key)
                     card_supertasks[subtask_key] = issue_key
 
-        if 'issuelinks' in fields:
-            for other_link in fields['issuelinks']:
-                result = process_link(fields, issue_key, other_link)
-                if result is not None:
-                    (linked_issue_key, edge) = result
-                    log('Appending ' + linked_issue_key)
-                    children.append(linked_issue_key)
-                    if edge is not None:
-                        graph.append(edge)
+        # if 'issuelinks' in issue['fields']:
+        for other_link in get_issuelinks(issue):
+            # result = process_link(fields, issue_key, other_link)
+            result = process_link(issue, other_link)
+            if result is not None:
+                (linked_issue_key, edge) = result
+                log('Appending ' + linked_issue_key)
+                children.append(linked_issue_key)
+                if edge is not None:
+                    graph.append(edge)
         # now construct graph data for all subtasks and links of this issue
         for child in (x for x in children if x not in seen and x not in issue_excludes):
             walk(child, graph, remaining_depth_limit)
@@ -567,21 +632,22 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                         'name': issue_type_name
                     }
                 }
-                isLink = False
-                issue_type_nodes.append(create_node_text(issue_key, issue_fields, isLink))
+                issue = {'key': issue_key, 'fields': issue_fields}
+                # issue_type_nodes.append(create_node_text(issue_key, issue_fields, islink=False))
+                issue_type_nodes.append(create_node_text(issue, islink=False))
                 if issue_key_prior is not None:
-                    graph.append(create_edge_text('"{}"'.format(issue_key_prior),
-                                                  '"{}"'.format(issue_key)))
+                    graph.append(create_edge_text(create_node_key(issue_key_prior),
+                                                  create_node_key(issue_key)))
                 issue_key_prior = issue_key
 
             graph.append('subgraph {{{}}}'.format(';'.join(issue_type_nodes)))
         return graph
 
     if start_issue_key == 'color-demo':
-        return color_demo([]), seen, seen_labels
+        return color_demo([]), seen
 
     project_prefix = start_issue_key.split('-', 1)[0]
-    return walk(start_issue_key, [], search_depth_limit), seen, seen_labels
+    return walk(start_issue_key, [], search_depth_limit), seen
 
 
 def update_issue_graph(jira, issue_key, file_attachment_path):
@@ -597,7 +663,7 @@ def update_issue_graph(jira, issue_key, file_attachment_path):
 
         # append or replace the description's inline image
         issue = jira.get_issue(update_issue_key)
-        description = issue['fields']['description']
+        description = get_description(issue)
         previous_image = re.search(r"^(h3\.\s*Jira Dependency Graph\s+\!)([^\!]+)(\!)", description, re.MULTILINE)
         if previous_image is not None:
             # old_attachment_name = previous_image.group(2) # leaving deletion to humans, just in case
@@ -610,6 +676,9 @@ def update_issue_graph(jira, issue_key, file_attachment_path):
         updated_fields = {"fields": {"description": description}}
         payload = json.dumps(updated_fields)
         jira.update_issue(update_issue_key, payload)
+
+    def get_description(issue):
+        return issue['fields']['description']
 
     return update(issue_key, file_attachment_path)
 
@@ -714,19 +783,12 @@ def filter_duplicates(lst):
     srt_enum = sorted(enumerate(lst), key=lambda i_val: i_val[1])
     return [item[1] for item in sorted(reduce(append_unique, srt_enum, [srt_enum[0]]))]
 
+
 #
 # def dict_to_attrs(dict, delimiter=','):
 #     return delimiter.join(
 #         [(('{}="{}"', '{}={}')[k == 'label' and v.startswith('<<')]).format(k, v) for k, v in dict.items() if
 #          k != 'name'])
-
-
-def create_edge_text(source_node_text, destination_node_text, edge_options={}):
-    edge = '{}->{}[{}]'.format(
-        source_node_text,
-        destination_node_text,
-        dict_to_attrs(edge_options))
-    return edge
 
 
 def main():
@@ -751,6 +813,8 @@ def main():
         password = options.password if options.password is not None \
             else getpass.getpass('Password: ')
         auth = (user, password)
+    # redact sensitive keys asap
+    redact_namespace(options)
 
     jira = JiraSearch(options.jira_url, auth, options.no_verify_ssl)
 
@@ -779,39 +843,62 @@ def main():
 
     graph = []
     seen = []
-    seen_labels = {}
-    card_levels = {k: 0 for k in options.issues}
-    card_states = {}
-    card_epics = {}
-    card_supertasks = {}
+    card_meta = {
+        'card_levels': {k: 0 for k in options.issues},
+        'card_states': {},
+        'card_epics': {},
+        'card_supertasks': {},
+        'card_labels': {},
+    }
 
     walk_depth_limit = None if options.depth_limit is None else options.depth_limit + 1
 
     for issue in (x for x in options.issues if x not in seen and x not in options.issue_excludes):
-        (g, s, l) = build_graph_data(issue, jira, options.excludes, options.show_directions, options.directions,
-                                     options.includes, options.issue_excludes, options.closed, options.ignore_epic,
-                                     options.ignore_subtasks, options.traverse, options.word_wrap, walk_depth_limit,
-                                     elements_to_include, style_options, graph_config, card_levels, card_states,
-                                     card_epics, card_supertasks)
+        (g, s) = build_graph_data(issue, jira, options.excludes, options.show_directions, options.directions,
+                                  options.includes, options.issue_excludes, options.closed, options.ignore_epic,
+                                  options.ignore_subtasks, options.traverse, options.word_wrap, walk_depth_limit,
+                                  elements_to_include, style_options, graph_config, card_meta)
         graph = graph + g
         seen = seen + s
 
-        if 'labels' in elements_to_include:
-            seen_labels.update(l)
+        # if 'labels' in elements_to_include:
+        #     card_labels.update(l)
 
     # select only cards that are within the (conditionally) desired depth
+
+    log('Dumping retro-testing fuel ...')
+    # log(f'jira = {jira}')
+    log(f'jira_issue_cache = {jira.get_issue_cache()}')
+    log(f'graph = {graph}')
+
+    card_levels = card_meta['card_levels']
+    card_states = card_meta['card_states']
+    card_epics = card_meta['card_epics']
+    card_supertasks = card_meta['card_supertasks']
+    card_labels = card_meta['card_labels']
+
+    log(f'card_levels = {card_levels}')
+    log(f'card_states = {card_states}')
+    log(f'card_epics = {card_epics}')
+    log(f'card_supertasks = {card_supertasks}')
+    log(f'card_labels = {card_labels}')
+
+    log(f'graph_config = {graph_config}')
+    log(f'elements_to_include = {elements_to_include}')
+    log(f'options = {options}')
 
     cards_beyond_depth_limit = []
     if options.depth_limit is not None:
         cards_beyond_depth_limit = [k for k, depth in card_levels.items() if depth > options.depth_limit]
         graph = [line for line in graph if
-                 all('"{}"'.format(issue_key) not in line for issue_key in cards_beyond_depth_limit)]
+                 all(create_node_key(issue_key) not in line for issue_key in cards_beyond_depth_limit)]
 
         # render cards outside of the initial depth, a little smaller
         depth_relative_node_graph = []
         for line in graph:
             match_result = re.match(r'^"([\w\-]+)"', line)
             if match_result:
+                # log(f"line: {line}, match_result: {match_result}")
                 node_issue_key = match_result.group(1)
                 if card_levels[node_issue_key] > 0:
                     penwidth = '0.5'
@@ -822,13 +909,7 @@ def main():
 
     labels_to_cards = {}
     if 'labels' in elements_to_include:
-        node_options = {}
-        node_edge_options = {}
         label_tree = []
-
-        label_node_options, label_edge_options = graph_config.get_node_options('label')
-        node_options.update(label_node_options)
-        node_edge_options.update(label_edge_options)
 
         labels_to_consolidate = {}
         issue_labels = graph_config.labels()
@@ -844,135 +925,85 @@ def main():
 
         labels_to_hide = []
         if options.label_hide:
-            # log(options.label_hide)
             labels_to_hide = options.label_hide
 
-        # log("cards_to_labels = {cards_to_labels}".format(cards_to_labels=cards_to_labels))
-        # log("labels_to_consolidate = {labels_to_consolidate}".format(labels_to_consolidate=labels_to_consolidate))
-        #
-        # cards_to_labels = {'WEB-6026': ['audio_processor', 'calls-team', 'phoenix'],
-        #                    'TECH-7035': ['calls-team', 'phoenix'], 'WEB-6022': ['audio_processor', 'phoenix'],
-        #                    'WEB-5542': ['audio_processor', 'calls-team'], 'TECH-6594': ['calls-team'],
-        #                    'TECH-7384': ['calls-team', 'expedite', 'rca'],
-        #                    'TECH-7383': ['calls-team', 'expedite', 'rca'], 'TECH-7350': ['calls-team'],
-        #                    'TECH-7349': ['calls-team'], 'TECH-7341': ['audio_processor', 'phoenix'],
-        #                    'TECH-7161': ['calls-team', 'dt-legacy', 'phoenix'], 'TECH-7153': ['calls-team'],
-        #                    'TECH-7141': ['phoenix'], 'TECH-7128': ['calls-team', 'expedite'],
-        #                    'TECH-7032': ['calls-team', 'phoenix'], 'TECH-7185': ['asr', 'calls-team', 'phoenix'],
-        #                    'TECH-7015': ['calls-team', 'phoenix'], 'TECH-7014': ['calls-team', 'phoenix'],
-        #                    'TECH-6992': ['calls-team'], 'TECH-6959': ['calls-team', 'phoenix'],
-        #                    'TECH-6925': ['calls-team', 'phoenix'], 'TECH-6895': ['calls-team', 'dt-legacy'],
-        #                    'OPS-4880': ['infra-sre-team'], 'TECH-6506': ['phoenix'], 'TECH-7411': ['phoenix'],
-        #                    'TECH-7144': ['phoenix'], 'TECH-7143': ['phoenix'], 'TECH-7142': ['phoenix'],
-        #                    'TECH-6768': ['phoenix'], 'TECH-6712': ['phoenix'], 'TECH-6685': ['phoenix', 'ringswitch'],
-        #                    'TECH-6309': ['audio_processor', 'calls-team'], 'TECH-7226': ['calls-team'],
-        #                    'TECH-6777': ['audio_processor', 'calls-team'], 'TECH-5796': ['phoenix'],
-        #                    'TECH-6510': ['calls-team'], 'STORY-11501': ['calls-team', 'phoenix'],
-        #                    'STORY-11414': ['calls-team', 'phoenix'], 'STORY-11507': ['calls-team', 'phoenix'],
-        #                    'STORY-11506': ['calls-team', 'phoenix'], 'STORY-11505': ['calls-team', 'phoenix'],
-        #                    'STORY-11504': ['calls-team', 'phoenix'], 'STORY-11503': ['calls-team', 'phoenix'],
-        #                    'STORY-11502': ['calls-team', 'phoenix'], 'STORY-11500': ['calls-team', 'phoenix'],
-        #                    'STORY-11499': ['calls-team', 'phoenix'], 'STORY-11498': ['calls-team', 'phoenix'],
-        #                    'STORY-11496': ['calls-team', 'phoenix'], 'STORY-11497': ['calls-team', 'phoenix'],
-        #                    'STORY-11345': ['calls-team', 'dt-legacy', 'phoenix'],
-        #                    'STORY-11346': ['Telecom', 'calls-team', 'dt-legacy', 'phoenix'],
-        #                    'STORY-10677': ['calls-team', 'phoenix'], 'STORY-10837': ['calls-team', 'phoenix'],
-        #                    'STORY-10134': ['calls-team', 'dt-legacy', 'phoenix'],
-        #                    'OPS-4560': ['infra-sre-team', 'unplanned']}
-        # labels_to_consolidate = {'calls-team': 'calls-team/phoenix', 'phoenix': 'calls-team/phoenix',
-        #                          'ivr-campaigns-team': 'ivr-campaigns-team/sequoia', 'telecom': 'telecom/telco',
-        #                          'telco': 'telecom/telco', 'attribution-team': 'attribution-team/mavericks',
-        #                          'mavericks': 'attribution-team/mavericks',
-        #                          'data-pipelines-team': 'data-pipelines-team/hawks',
-        #                          'earlybirds': 'integrations-team/earlybirds', 'eb': 'integrations-team/earlybirds',
-        #                          'integrations-team': 'integrations-team/earlybirds',
-        #                          'frontend-platform-team': 'frontend-platform-team', 'octothorp': 'octothorpe/hydra',
-        #                          'hydra': 'octothorpe/hydra', 'octothorpe': 'octothorpe/hydra',
-        #                          'infra-sre-team': 'infra-sre-team/infra-sre', 'infra-sre': 'infra-sre-team/infra-sre',
-        #                          'sre-team': 'infra-sre-team/infra-sre', 'platform-team': 'app-sre-team/platform-team',
-        #                          'app-sre-team': 'app-sre-team/platform-team',
-        #                          'conversation-intelligence-team': 'conversation-intelligence-team/swift',
-        #                          'swift': 'conversation-intelligence-team/swift',
-        #                          'swift-action-items': 'conversation-intelligence-team/swift',
-        #                          'ps': 'production-support/ps',
-        #                          'reporting-frontend-team': 'reporting-frontend-team/sharks',
-        #                          'sharks': 'reporting-frontend-team/sharks',
-        #                          'reporting-backend-team': 'reporting-backend-team/omega', 'rca': 'rca', 'RCA': 'rca',
-        #                          'audio_processor': None}
-
         # build cards_to_labels, omitting cards outside of depth limit
-        cards_to_labels = seen_labels
+        cards_to_labels = card_labels
         cards_to_labels = {k: v for k, v in cards_to_labels.items() if k not in cards_beyond_depth_limit}
         labels_to_cards = invert_dict(cards_to_labels)
 
         # re-label as necessary
-        for label_0 in list(labels_to_cards):
-            label_1 = labels_to_consolidate.get(label_0.lower(), label_0.lower())
-            if not label_1:
-                labels_to_cards.pop(label_0)
+        for label_found in list(labels_to_cards):
+            label_clean = labels_to_consolidate.get(label_found.lower(), label_found.lower())
+            if not label_clean:
+                labels_to_cards.pop(label_found)
                 continue
-            if label_0 == label_1:
+            if label_found == label_clean:
                 continue
-            if not label_1 in labels_to_cards.keys():
-                labels_to_cards[label_1] = []
-            labels_to_cards[label_1] = labels_to_cards[label_1] + [k for k in labels_to_cards.pop(label_0) if
-                                                                   k not in labels_to_cards[label_1]]
+            if not label_clean in labels_to_cards.keys():
+                labels_to_cards[label_clean] = []
+            labels_to_cards[label_clean] = labels_to_cards[label_clean] + [k for k in labels_to_cards.pop(label_found)
+                                                                           if k not in labels_to_cards[label_clean]]
 
-        # for issue_key, labels in seen_labels.items():
-        # if issue_key in cards_beyond_depth_limit:
-        #     continue
-        # for card_label in labels:
-        #     card_label = labels_to_consolidate.get(card_label.lower(), card_label)
-        #     if card_label is None:
-        #         continue
+        # orient 'root' labels toward the beginning of the graph, and all other labels toward the end of the graph
         for label, issue_keys in labels_to_cards.items():
+            # log(f'issue_labels = {issue_labels}')
+            orientation = next((item for item in issue_labels if label == item.get('name')), {}).get('orientation',
+                                                                                                     'leaf')
+            label_node_options, label_edge_options = graph_config.get_node_options('label')
+
+            # label node attributes
+            label_node_attributes = label_node_options.copy()
+            label_node_attributes['href'] = jira.get_query_uri(
+                'labels in ({}) and not statusCategory = Done'.format(label.replace('/', ', ')))
+
+            if orientation == 'leaf':
+                label_node_attributes['orientation'] = '180'
+
+            # label edge attributes
+            label_edge_attributes = label_edge_options.copy()
+
+            if label in labels_to_hide:
+                label_node_attributes['style'] = label_edge_attributes['style'] = 'invis'
+
+            label_node_text = graphviz_node_string(label, label_node_attributes)
+            label_tree.append(label_node_text)
 
             for issue_key in issue_keys:
-                card_label = label
-
-                # orient 'team' labels toward the beginning of the graph, and all other labels toward the end of the graph
-
-                label_options = node_options.copy()
-                if 'team' not in card_label:
-                    label_options['orientation'] = '180'
-                label_options['href'] = jira.get_query_uri(
-                    'labels in ({}) and not statusCategory = Done'.format(card_label.replace('/', ', ')))
-                if card_label in labels_to_hide:
-                    label_options['style'] = 'invis'
-                label_node_text = '"{}"[{}]'.format(card_label, dict_to_attrs(label_options))
-                label_tree.append(label_node_text)
-
-                edge_nodes = ['"{}"'.format(issue_key),
-                              '"{}"'.format(card_label)]
-                if 'team' in card_label:
+                edge_nodes = [create_node_key(issue_key), create_node_key(label)]
+                if orientation == 'root':
                     edge_nodes.reverse()
-                this_node_edge_options = node_edge_options.copy()
-                if card_label in labels_to_hide:
-                    this_node_edge_options['style'] = 'invis'
-                label_edge_text = create_edge_text(edge_nodes[0], edge_nodes[1], this_node_edge_options)
+
+                label_edge_text = create_edge_text(edge_nodes[0], edge_nodes[1], label_edge_attributes)
                 label_tree.append(label_edge_text)
 
-        if label_tree:
-            label_tree = ['\n\n// Labels'] + sorted(set(label_tree))
-            graph = label_tree + graph
+    digraph = []
+
+    if options.employ_subgraphs:
+        subgraph_tree = generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph,
+                                           graph_config)
+        digraph = digraph + ['\n\n// Subgraphs'] + subgraph_tree
+
+    if label_tree:
+        digraph = digraph + ['\n\n// Labels'] + sorted(set(label_tree))
+
+    if graph:
+        digraph = digraph + ['\n\n// Graph'] + filter_duplicates(graph)
 
     graph_attributes = {'rankdir': options.graph_rank_direction}
     if 'graph_arguments' in elements_to_include:
-        graph_attributes.update({'labelloc': 't', 'labeljust': 'c',
-                                 'label': format(' '.join(sys.argv[1:]).replace('"', '\\"').replace("'", "\'"))})
+        sys_args = sys.argv[1:]
+        sys_args.sort(key=lambda x: x[0:6] == '--jql=')
+        sys_args_str = ' '.join(sys_args).replace('"', '\\"').replace("'", "\'")
+        sys_args_str = sys_args_str.replace('--jql=', '\\n--jql=')
+        graph_attributes.update({'labelloc': 't', 'labeljust': 'c', 'label': sys_args_str})
 
     default_node_attributes = {'shape': options.node_shape}
     default_node_attributes.update(graph_config.get_default_node_options())
 
-    if graph:
-        graph = ['\n\n// Graph'] + filter_duplicates(graph)
-    group_by_state = options.employ_subgraphs
-    group_by_epic = options.employ_subgraphs
-    if group_by_state and group_by_epic:
-        graph = generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph, graph_config)
+    graph_string = create_graph_string(digraph, graph_attributes, default_node_attributes)
 
-    graph_string = create_graph_string(graph, graph_attributes, default_node_attributes)
-
+    # TODO: consecutive semi-colons cause issues - better to avoid the prior to this point
     graph_string = re.sub(r';\s+;', ';', graph_string)
 
     # log(graph_string)
@@ -1009,14 +1040,19 @@ def main():
             update_issue_graph(jira, options.issue_update, file_attachment_path)
 
 
+def redact_namespace(config, sensitive_keys=['user', 'password']):
+    for key in sensitive_keys:
+        delattr(config, key)
+
+
 def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph, graph_config):
     # log(card_states.values())
     # log(set(card_states.values()))
 
-    states = list(set(card_states.values()))
-    epics = list(set(card_epics.values()))
-    parents = list(set(card_supertasks.values()))
-    grouped_graph = []
+    # states = list(set(card_states.values()))
+    # epics = list(set(card_epics.values()))
+    # parents = list(set(card_supertasks.values()))
+    # grouped_graph = []
 
     # log(states)
     # log(epics)
@@ -1027,7 +1063,7 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards
     subgraph_tree = {}
 
     for line in graph:
-        grouped_graph.append(line)
+        # grouped_graph.append(line)
 
         # detect and treat node entry
         match_result = re.match(r'^"([A-Z]+-[0-9]+)" *?(?!-)', line)
@@ -1041,107 +1077,29 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards
 
             node_issue_parent = node_issue_card_supertask or node_issue_card_epic
 
-            # if node_issue_parent == '':
-            #     if node_issue_key in (list(card_epics.values()) + list(card_supertasks.values())):
-            #         node_issue_parent = node_issue_key
-
-            # build_subgraph_tree_0(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
-            #                       subgraph_tree)
-            # build_subgraph_tree_1(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
-            #                       subgraph_tree)
             build_subgraph_tree_2(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
                                   subgraph_tree)
 
-            # node_issue_subgraph_name = 'cluster_{node_issue_key}'.format(node_issue_key=snake_case(node_issue_key))
-            # node_issue_parent_subgraph_name = 'cluster_{node_issue_parent}_{node_issue_card_state}'.format(
-            #     node_issue_parent=snake_case(node_issue_parent),
-            #     node_issue_card_state=snake_case(node_issue_card_state))
-            #
-            # if node_issue_key in ['TECH-5796', 'TECH-6309']:
-            #     log("node_issue_key: {node_issue_key}\nnode_issue_card_epic: {node_issue_card_epic}, node_issue_card_supertask: {node_issue_card_supertask}, node_issue_card_state:{node_issue_card_state}".format(
-            #         node_issue_key=node_issue_key, node_issue_card_epic=node_issue_card_epic,
-            #         node_issue_card_supertask=node_issue_card_supertask, node_issue_card_state=node_issue_card_state
-            #     ))
-            #     log("node_issue_subgraph_name: {node_issue_subgraph_name}, node_issue_parent_subgraph_name: {node_issue_parent_subgraph_name}".format(
-            #         node_issue_subgraph_name=node_issue_subgraph_name,
-            #         node_issue_parent_subgraph_name=node_issue_parent_subgraph_name
-            #     ))
-            #
-    # log(subgraph_tree)
-
     graft_subgraph_tree_branches(subgraph_tree)
-
-    # log(subgraph_tree)
-    # log(labels_to_cards)
 
     labels_to_paths = {label: common_path(subgraph_tree, keys) for label, keys in labels_to_cards.items()}
 
-    # log(labels_to_paths)
     paths_to_labels = invert_dict(labels_to_paths)
-    # log(paths_to_labels)
 
-    # log(f'paths_to_labels: {paths_to_labels}')
     clusters_to_labels = {}
     for k, v in paths_to_labels.items():
-        # log(f"k: {k}")
-        # log(f"containing_cluster(k): {containing_cluster(k)}")
         clusters_to_labels[containing_cluster(k)] = v
 
-    # log(f"clusters_to_labels: {clusters_to_labels}")
-    # for path, labels in paths_to_labels.items():
-    #     log("path: {path}".format(path=path))
-    #     path_parts = path.split('|')
-    #     node = subgraph_tree
-    #     for path_part in path_parts:
-    #         log("path_part: {path_part}, subgraph_tree.keys(): {keys}".format(path_part=path_part, keys=subgraph_tree.keys()))
-    #         path_part_key = next(key for key in node.keys() if snake_case(key) == path_part)
-    #         node = node[path_part_key]
-    #     for label in labels:
-    #         node[label] = {}
-
-    # subgraph_tree_str = render_issue_subgraph(subgraph_tree, paths_to_labels, graph_config)
     subgraph_tree_str = render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config)
     subgraph_tree_str = re.sub(r';\s+;', ';', subgraph_tree_str)
-    subgraph_tree_str = '\n\n// Subgraphs:\n\n' + subgraph_tree_str
+    # subgraph_tree_str = '\n\n// Subgraphs:\n\n' + subgraph_tree_str
 
-    grouped_graph = [subgraph_tree_str] + grouped_graph
+    # grouped_graph = [subgraph_tree_str] + grouped_graph
+    #
+    # graph = grouped_graph
+    # return graph
+    return [subgraph_tree_str]
 
-    # log("subgraph_tree: {subgraph_tree}".format(subgraph_tree=subgraph_tree))
-
-    graph = grouped_graph
-    return graph
-
-
-#
-# def build_subgraph_tree_0(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
-#                           subgraph_tree):
-#     if node_issue_parent:
-#         if not node_issue_parent in subgraph_tree.keys():
-#             subgraph_tree[node_issue_parent] = {}
-#         if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
-#             subgraph_tree[node_issue_parent][node_issue_card_state] = {}
-#         if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
-#             subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
-#     if node_issue_parent == '':
-#         if node_issue_key in (list(card_epics.values()) + list(card_supertasks.values())):
-#             node_issue_parent = node_issue_key
-#         else:
-#             # TODO: add some logic around when to/not to do this
-#             if not node_issue_parent in subgraph_tree.keys():
-#                 subgraph_tree[node_issue_parent] = {}
-#             if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
-#                 subgraph_tree[node_issue_parent][node_issue_card_state] = {}
-#             if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
-#                 subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
-#
-# def build_subgraph_tree_1(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
-#                           subgraph_tree):
-#     if not node_issue_parent in subgraph_tree.keys():
-#         subgraph_tree[node_issue_parent] = {}
-#     if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
-#         subgraph_tree[node_issue_parent][node_issue_card_state] = {}
-#     if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
-#         subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
 
 def build_subgraph_tree_2(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
                           subgraph_tree):
@@ -1169,11 +1127,7 @@ def render_subgraphs1(subgraph_tree, prefix=''):
     return subgraph_str
 
 
-# def render_issue_subgraph(subgraph_tree, paths_to_labels, graph_config):
 def render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config):
-    # log("subgraph_tree = {subgraph_tree}".format(subgraph_tree=subgraph_tree))
-    # log("paths_to_labels = {paths_to_labels}".format(paths_to_labels=paths_to_labels))
-    # log(f"clusters_to_labels = {clusters_to_labels}")
     debug_subgraphs = False
     subgraph_attrs = {}
     if not debug_subgraphs:
@@ -1185,28 +1139,19 @@ def render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config):
     subgraph_strs = []
     for issue_name, child_states in subgraph_tree.items():
         cluster_name = snake_case('cluster_{}'.format(issue_name))
-        cluster_path = snake_case(issue_name)
-        # cluster_labels = paths_to_labels.get(cluster_path, [])
         cluster_labels = clusters_to_labels.get(cluster_name, [])
-        # log(f'cluster_name: {cluster_name}')
-        # log(f'clusters_to_labels.get(cluster_name, []): {cluster_labels}')
         state_subgraph_strs = ''
         state_subgraph_points = []
         for state, children in child_states.items():
             issue_state = snake_case("{} {}".format(issue_name, state))
             state_cluster_name = snake_case('cluster_{}'.format(issue_state))
-            # log(f'state_cluster_name: {state_cluster_name}')
             state_cluster_labels = clusters_to_labels.get(state_cluster_name, [])
-            # log(f'clusters_to_labels.get(cluster_labels, []): {state_cluster_labels}')
-            # state_cluster_path = snake_case(issue_state)
-            # state_cluster_labels = paths_to_labels.get(state_cluster_path,[])
             state_cluster_label_strs = "\n".join(['"{e}"'.format(e=e) for e in state_cluster_labels if e])
             state_subgraph_strs = state_subgraph_strs + "subgraph {state_cluster_name} {{\n{sg_attr_str}\n{issue_state}[{sgn_attr_str}];\n{child_clusters}\n}};\n".format(
                 state_cluster_name=state_cluster_name,
                 issue_state=issue_state,
-                # issue_name=issue_name,
-                # child_clusters=render_issue_subgraph(children, paths_to_labels, graph_config),
-                child_clusters=render_issue_subgraph(children, clusters_to_labels, graph_config) + state_cluster_label_strs,
+                child_clusters=render_issue_subgraph(children, clusters_to_labels,
+                                                     graph_config) + state_cluster_label_strs,
                 sg_attr_str=dict_to_attrs({**subgraph_attrs, 'label': state_cluster_name}, ';'),
                 sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
             )
@@ -1221,7 +1166,6 @@ def render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config):
         state_subgraph_strs = state_subgraph_strs + present_epic_state_edges_str
 
         if state_subgraph_strs:
-            # log(f'if state_subgraph_strs: {cluster_labels}')
             elements = [issue_name if issue_name else ''] + cluster_labels
             elements = "\n".join(['"{e}"'.format(e=e) for e in elements if e])
             subgraph_strs.append(
@@ -1233,7 +1177,6 @@ def render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config):
                     sgn_attr_str=dict_to_attrs(subgraph_node_attrs, ';'),
                 ))
         else:
-            # log(f'else: {cluster_labels}')
             elements = [issue_name if issue_name else ''] + cluster_labels
             elements = "\n".join(['"{e}"'.format(e=e) for e in elements if e])
             subgraph_strs.append("{issue_name}".format(
@@ -1244,7 +1187,6 @@ def render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config):
 
 
 def issue_state_edges(issue_name, child_states, graph_config, debug_subgraphs):
-    # workflow_states = [snake_case(state) for state in graph_config.get_card_states('story')]
     workflow_states = ['open', 'ready to plan'] + [snake_case(state) for state in graph_config.get_card_states('story')]
     present_states = [snake_case(state) for state in child_states.keys()]
     present_states = list(set(workflow_states) & set(present_states))
@@ -1258,26 +1200,10 @@ def issue_state_edges(issue_name, child_states, graph_config, debug_subgraphs):
         if not debug_subgraphs:
             epic_state_edge_attrs['style'] = 'invis'
 
-        # log(present_epic_states)
-        # log(epic_state_edge_attrs)
         present_epic_state_edges_str = '{present_epic_state_edges} [{edge_attrs}]'.format(
             present_epic_state_edges=' -> '.join(present_epic_states),
             edge_attrs=dict_to_attrs(epic_state_edge_attrs))
     return present_epic_state_edges_str
-
-
-# path_to_root(subgraph_tree, 'TECH-6712')
-#
-# subgraph_tree = {'': {'': {'TECH-7341': {}}, 'IN PROGRESS': {'TECH-7153': {}, 'OPS-4560': {}, 'TECH-6925': {}, 'TECH-7128': {}, 'TECH-7035': {}, 'WEB-6026': {}, 'TECH-7350': {}}, 'READY TO DEPLOY': {'TECH-6895': {}, 'STORY-10134': {}, 'TECH-7349': {}}, 'ON DECK': {'STORY-11346': {}, 'OPS-4880': {}}, 'POST DEPLOY': {'WEB-6022': {}}, 'IN QA': {'STORY-11345': {}, 'TECH-7161': {}}}, 'STORY-11414': {'IN PROGRESS': {'STORY-11501': {}}, 'OPEN': {'STORY-11498': {}, 'STORY-11500': {}, 'STORY-11497': {}, 'STORY-11502': {}, 'STORY-11503': {}, 'STORY-11504': {}, 'STORY-11506': {}}, 'ON DECK': {'STORY-11499': {}, 'STORY-11507': {}}}, 'TECH-6506': {'IN QA': {'TECH-7141': {}}, 'QA COMPLETE': {'TECH-6959': {}}, 'OPEN': {'TECH-7144': {}, 'TECH-6685': {}, 'TECH-7142': {}, 'TECH-7143': {}, 'TECH-6712': {}, 'TECH-7411': {}}, 'ON DECK': {'TECH-6768': {}}}, 'TECH-6309': {'OPEN': {'TECH-6777': {}}, 'ON DECK': {'TECH-6510': {}, 'TECH-7226': {}, 'TECH-6594': {}}, 'CODE REVIEW': {'TECH-5796': {}, 'TECH-6992': {}, 'WEB-5542': {}}}, 'STORY-10677': {'IN PROGRESS': {'TECH-7032': {'ON DECK': {'TECH-7185': {}}}}, 'OPEN': {'STORY-10837': {}}}, 'TECH-7384': {'IN PROGRESS': {'TECH-7383': {}}}, 'TECH-7015': {'CODE REVIEW': {'TECH-7014': {}}}}
-#
-
-# keys = ['STORY-11345', 'STORY-11346', 'TECH-7161', 'STORY-10134', 'TECH-6895']
-
-
-#
-# subgraph_tree = {'a':{'aa':{'aaa':{}}, 'bb':{}, 'cc':{'ccc':{}}}}
-#
-# path_to_root(subgraph_tree, 'aa')
 
 
 if __name__ == '__main__':
