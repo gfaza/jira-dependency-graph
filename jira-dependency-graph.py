@@ -100,7 +100,6 @@ class JiraSearch(object):
     def get_issue(self, key):
         """ Given an issue key (i.e. JRA-9) return the JSON representation of it. """
         log('Fetching ' + key)
-        # log(inspect.getouterframes(inspect.currentframe()))
         # we need to expand subtasks and links since that's what we care about here.
         response = self.get('/issue/%s' % key, params={'fields': self.fields})
         response.raise_for_status()
@@ -163,7 +162,6 @@ class GraphConfig:
 
     def __init__(self, config_dict):
         self.__config_dict = config_dict
-        # log(self.__config_dict)
 
     def color_setting(self):
         return self.__config_dict.get('color-setting', {})
@@ -289,9 +287,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
     def get_key(issue):
         return issue['key']
 
-    # def get_fields(issue):
-    #     return issue['fields']
-
     def get_issuetype_name(issue):
         return issue['fields']['issuetype']['name']
 
@@ -322,25 +317,13 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
     def get_inward_issue_status_name(link):
         return link['inwardIssue']['fields']['status']['name']
 
-    # def create_node_text(issue_key, fields, islink=True):
     def create_node_text(issue, islink=True):
-        # fields = get_fields(issue)
-        # issue_key = get_key(issue)
         if islink:
             return create_node_key(get_key(issue))
-
-        # node_attributes = build_issue_node_attributes(issue_key, fields)
         node_attributes = build_issue_node_attributes(issue)
-
-        # graphviz node markup
         return graphviz_node_string(get_key(issue), node_attributes)
 
-    # def build_issue_node_attributes(issue_key, fields):
     def build_issue_node_attributes(issue):
-        # fields = get_fields(issue)
-        # issue_key = get_key(issue)
-        # node_attributes = {'href': jira.get_issue_uri(issue_key),
-        #                    'label': get_node_label(issue_key, fields),
         node_attributes = {'href': jira.get_issue_uri(get_key(issue)),
                            'label': get_node_label(issue),
                            'style': 'filled'}
@@ -356,10 +339,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             node_attributes['fontcolor'] = font_color
         return node_attributes
 
-    # def get_node_label(issue_key, fields):
     def get_node_label(issue):
-        # fields = get_fields(issue)
-        # issue_key = get_key(issue)
         summary = get_summary(issue)
         if word_wrap:
             if len(summary) > MAX_SUMMARY_LENGTH:
@@ -370,7 +350,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             # -- otherwise the truncated label would be taking more space than the original.
             if len(summary) > MAX_SUMMARY_LENGTH + 2:
                 summary = summary[:MAX_SUMMARY_LENGTH] + '...'
-        # summary = summary.replace('"', '\\"')
         if style_options.get('html_stylize', False):
             summary = html.escape(summary)
             summary = summary.replace('\n', '<br/>')
@@ -424,9 +403,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                 node_label = '{}\\n{}'.format(get_key(issue), summary)
         return node_label
 
-    # def process_link(fields, issue_key, link):
     def process_link(issue, link):
-        # fields = get_fields(issue)
         issue_key = get_key(issue)
 
         if 'outwardIssue' in link:
@@ -492,7 +469,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
     # since the graph can be cyclic we need to prevent infinite recursion
     seen = []
-    # card_labels = {}
 
     sanity_check_issue_cache = False
 
@@ -502,8 +478,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
         issue_cache_sanity_check(issue_key)
         issue = jira.issue_cache_get(issue_key)
-
-        # fields = get_fields(issue)
         seen.append(issue_key)
 
         issue_status_name = get_status_name(issue)
@@ -515,11 +489,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         if not traverse and ((project_prefix + '-') not in issue_key):
             log('Skipping ' + issue_key + ' - not traversing to a different project')
             return graph
-
-        # graph.append(create_node_text(issue_key, fields, islink=False))
         graph.append(create_node_text(issue, islink=False))
-
-        # if 'labels' in elements_to_include and ('labels' in fields.keys()):
         if 'labels' in elements_to_include:
             card_labels[issue_key] = get_labels(issue)
 
@@ -574,10 +544,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                     graph.append(edge)
                     children.append(subtask_key)
                     card_supertasks[subtask_key] = issue_key
-
-        # if 'issuelinks' in issue['fields']:
         for other_link in get_issuelinks(issue):
-            # result = process_link(fields, issue_key, other_link)
             result = process_link(issue, other_link)
             if result is not None:
                 (linked_issue_key, edge) = result
@@ -633,7 +600,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                     }
                 }
                 issue = {'key': issue_key, 'fields': issue_fields}
-                # issue_type_nodes.append(create_node_text(issue_key, issue_fields, islink=False))
                 issue_type_nodes.append(create_node_text(issue, islink=False))
                 if issue_key_prior is not None:
                     graph.append(create_edge_text(create_node_key(issue_key_prior),
@@ -784,13 +750,6 @@ def filter_duplicates(lst):
     return [item[1] for item in sorted(reduce(append_unique, srt_enum, [srt_enum[0]]))]
 
 
-#
-# def dict_to_attrs(dict, delimiter=','):
-#     return delimiter.join(
-#         [(('{}="{}"', '{}={}')[k == 'label' and v.startswith('<<')]).format(k, v) for k, v in dict.items() if
-#          k != 'name'])
-
-
 def main():
     config = configparser.ConfigParser()
     config.read('./config/personal-config.ini')
@@ -861,13 +820,9 @@ def main():
         graph = graph + g
         seen = seen + s
 
-        # if 'labels' in elements_to_include:
-        #     card_labels.update(l)
-
     # select only cards that are within the (conditionally) desired depth
 
     log('Dumping retro-testing fuel ...')
-    # log(f'jira = {jira}')
     log(f'jira_issue_cache = {jira.get_issue_cache()}')
     log(f'graph = {graph}')
 
@@ -913,6 +868,7 @@ def main():
 
         labels_to_consolidate = {}
         issue_labels = graph_config.labels()
+
         # map labels to consolidated group label
         for label_to_consolidate in [{group_item: item['name'] for group_item in item['group']}
                                      for item in issue_labels if 'group' in item.keys()]:
@@ -947,7 +903,6 @@ def main():
 
         # orient 'root' labels toward the beginning of the graph, and all other labels toward the end of the graph
         for label, issue_keys in labels_to_cards.items():
-            # log(f'issue_labels = {issue_labels}')
             orientation = next((item for item in issue_labels if label == item.get('name')), {}).get('orientation',
                                                                                                      'leaf')
             label_node_options, label_edge_options = graph_config.get_node_options('label')
@@ -1006,8 +961,6 @@ def main():
     # TODO: consecutive semi-colons cause issues - better to avoid the prior to this point
     graph_string = re.sub(r';\s+;', ';', graph_string)
 
-    # log(graph_string)
-
     if options.local:
         print_graph(graph_string)
     else:
@@ -1046,31 +999,13 @@ def redact_namespace(config, sensitive_keys=['user', 'password']):
 
 
 def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph, graph_config):
-    # log(card_states.values())
-    # log(set(card_states.values()))
-
-    # states = list(set(card_states.values()))
-    # epics = list(set(card_epics.values()))
-    # parents = list(set(card_supertasks.values()))
-    # grouped_graph = []
-
-    # log(states)
-    # log(epics)
-    # log(parents)
-    # log(card_epics)
-    # log(card_supertasks)
-
     subgraph_tree = {}
 
     for line in graph:
-        # grouped_graph.append(line)
-
         # detect and treat node entry
         match_result = re.match(r'^"([A-Z]+-[0-9]+)" *?(?!-)', line)
         if match_result:
             node_issue_key = match_result.group(1)
-            # log("node_issue_key:{node_issue_key}, line:{line}".format(node_issue_key=node_issue_key, line=line))
-
             node_issue_card_epic = card_epics.get(node_issue_key, '')
             node_issue_card_supertask = card_supertasks.get(node_issue_key, '')
             node_issue_card_state = card_states.get(node_issue_key, '')
@@ -1092,12 +1027,6 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards
 
     subgraph_tree_str = render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config)
     subgraph_tree_str = re.sub(r';\s+;', ';', subgraph_tree_str)
-    # subgraph_tree_str = '\n\n// Subgraphs:\n\n' + subgraph_tree_str
-
-    # grouped_graph = [subgraph_tree_str] + grouped_graph
-    #
-    # graph = grouped_graph
-    # return graph
     return [subgraph_tree_str]
 
 
@@ -1157,11 +1086,7 @@ def render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config):
             )
             state_subgraph_points.append(issue_state)
 
-        #######
-
         present_epic_state_edges_str = issue_state_edges(issue_name, child_states, graph_config, debug_subgraphs)
-
-        #######
 
         state_subgraph_strs = state_subgraph_strs + present_epic_state_edges_str
 
