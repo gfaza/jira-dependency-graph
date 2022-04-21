@@ -141,11 +141,11 @@ class JiraSearch(object):
         if issue is None:
             issue = self.get_issue(issue_key)
             self.issue_cache_set(issue)
-        return issue
+        return self.issue_cache[issue_key]
 
     def issue_cache_set(self, issue):
         self.issue_cache_prep(issue)
-        self.issue_cache[issue['key']] = issue
+        self.issue_cache[issue['key']] = JiraIssue(issue)
 
     @staticmethod
     def issue_cache_prep(issue):
@@ -155,6 +155,62 @@ class JiraSearch(object):
 
     def get_issue_cache(self):
         return self.issue_cache
+
+
+class JiraIssue:
+    __data = None
+
+    def __init__(self, data):
+        self.__data = data
+
+    def get_key(self):
+        return self.__data['key']
+
+    @staticmethod
+    def get_key_from(data):
+        return data['key']
+
+    def get_issuetype_name(self):
+        return self.__data['fields']['issuetype']['name']
+
+    def get_status_name(self):
+        return self.__data['fields']['status']['name']
+
+    @staticmethod
+    def get_status_name_from(data):
+        return data['fields']['status']['name']
+
+    def get_statuscategory_name(self):
+        return self.__data['fields']['status']['statusCategory']['name']
+
+    def get_labels(self):
+        return self.__data['fields']['labels'] if 'labels' in self.__data['fields'] else []
+
+    def get_subtasks(self):
+        return self.__data['fields']['subtasks'] if 'subtasks' in self.__data['fields'] else []
+
+    def get_issuelinks(self):
+        return self.__data['fields']['issuelinks'] if 'issuelinks' in self.__data['fields'] else []
+
+    def get_assignee(self):
+        return self.__data['fields']['assignee']
+
+    def get_assignee_initials(self):
+        return self.get_assignee()['emailAddress'][:2].upper()
+
+    def get_summary(self):
+        return self.__data['fields']['summary']
+
+    @staticmethod
+    def get_outward_issue_status_name(link):
+        return link['outwardIssue']['fields']['status']['name']
+
+    @staticmethod
+    def get_inward_issue_status_name(link):
+        return link['inwardIssue']['fields']['status']['name']
+
+    def get_description(self):
+        return self.__data['fields']['description']
 
 
 class GraphConfig:
@@ -284,63 +340,32 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
     card_supertasks = card_meta['card_supertasks']
     card_labels = card_meta['card_labels']
 
-    def get_key(issue):
-        return issue['key']
-
-    def get_issuetype_name(issue):
-        return issue['fields']['issuetype']['name']
-
-    def get_status_name(issue):
-        return issue['fields']['status']['name']
-
-    def get_statuscategory_name(issue):
-        return issue['fields']['status']['statusCategory']['name']
-
-    def get_labels(issue):
-        return issue['fields']['labels'] if 'labels' in issue['fields'] else []
-
-    def get_subtasks(issue):
-        return issue['fields']['subtasks'] if 'subtasks' in issue['fields'] else []
-
-    def get_issuelinks(issue):
-        return issue['fields']['issuelinks'] if 'issuelinks' in issue['fields'] else []
-
-    def get_assignee(issue):
-        return issue['fields']['assignee']
-
-    def get_summary(issue):
-        return issue['fields']['summary']
-
-    def get_outward_issue_status_name(link):
-        return link['outwardIssue']['fields']['status']['name']
-
-    def get_inward_issue_status_name(link):
-        return link['inwardIssue']['fields']['status']['name']
-
     def create_node_text(issue, islink=True):
         if islink:
-            return create_node_key(get_key(issue))
+            return create_node_key(issue.get_key())
         node_attributes = build_issue_node_attributes(issue)
-        return graphviz_node_string(get_key(issue), node_attributes)
+        return graphviz_node_string(issue.get_key(), node_attributes)
 
     def build_issue_node_attributes(issue):
-        node_attributes = {'href': jira.get_issue_uri(get_key(issue)),
+        node_attributes = {'href': jira.get_issue_uri(issue.get_key()),
                            'label': get_node_label(issue),
                            'style': 'filled'}
+
         # issue-type-specific, node attributes
-        node_options, edge_options = graph_config.get_node_options(get_issuetype_name(issue).lower())
+        node_options, edge_options = graph_config.get_node_options(issue.get_issuetype_name().lower())
         node_attributes.update(node_options)
+
         # issue-state specific, node coloring
-        fill_color, font_color = graph_config.get_issue_color(get_issuetype_name(issue),
-                                                              get_status_name(issue),
-                                                              get_statuscategory_name(issue))
+        fill_color, font_color = graph_config.get_issue_color(issue.get_issuetype_name(),
+                                                              issue.get_status_name(),
+                                                              issue.get_statuscategory_name())
         node_attributes['fillcolor'] = fill_color
         if font_color is not None:
             node_attributes['fontcolor'] = font_color
         return node_attributes
 
     def get_node_label(issue):
-        summary = get_summary(issue)
+        summary = issue.get_summary()
         if word_wrap:
             if len(summary) > MAX_SUMMARY_LENGTH:
                 # split the summary into multiple lines adding a \n to each line
@@ -357,17 +382,18 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             th_font_attributes = 'face="Impact"'
             td_font_attributes = ""
             if 'state' in elements_to_include:
-                if 'assignee' in elements_to_include and get_assignee(issue) is not None:
+                if 'assignee' in elements_to_include and issue.get_assignee() is not None:
                     node_label = '<<table {table_attributes}>' \
                                  '<tr>' \
                                  '<td align="center"><font {th_font_attributes}>{issue_key}</font></td>' \
                                  '<td align="center"><font {th_font_attributes}>{issue_state}</font></td>' \
                                  '<td align="center"><font {th_font_attributes}>{issue_assignee}</font></td>' \
                                  '</tr>' \
-                                 '<tr><td align="center" colspan="3"><font {td_font_attributes}>{issue_summary}</font></td></tr></table>>' \
+                                 '<tr><td align="center" colspan="3"><font {td_font_attributes}>{issue_summary}</font></td></tr>' \
+                                 '</table>>' \
                         .format(table_attributes=table_attributes, th_font_attributes=th_font_attributes,
-                                issue_key=get_key(issue), issue_state=get_status_name(issue).upper(),
-                                issue_assignee=get_assignee(issue)['emailAddress'][:2].upper(),
+                                issue_key=issue.get_key(), issue_state=issue.get_status_name().upper(),
+                                issue_assignee=issue.get_assignee_initials(),
                                 td_font_attributes=td_font_attributes,
                                 issue_summary=summary)
                 else:
@@ -376,9 +402,10 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                                  '<td align="center"><font {th_font_attributes}>{issue_key}</font></td>' \
                                  '<td align="center"><font {th_font_attributes}>{issue_state}</font></td>' \
                                  '</tr>' \
-                                 '<tr><td align="center" colspan="2"><font {td_font_attributes}>{issue_summary}</font></td></tr></table>>' \
+                                 '<tr><td align="center" colspan="2"><font {td_font_attributes}>{issue_summary}</font></td></tr>' \
+                                 '</table>>' \
                         .format(table_attributes=table_attributes, th_font_attributes=th_font_attributes,
-                                issue_key=get_key(issue), issue_state=get_status_name(issue).upper(),
+                                issue_key=issue.get_key(), issue_state=issue.get_status_name().upper(),
                                 td_font_attributes=td_font_attributes,
                                 issue_summary=summary)
             else:
@@ -386,25 +413,26 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                              '<tr>' \
                              '<td align="center"><font {th_font_attributes}>{issue_key}</font></td>' \
                              '</tr>' \
-                             '<tr><td align="center" colspan="1"><font {td_font_attributes}>{issue_summary}</font></td></tr></table>>' \
+                             '<tr><td align="center" colspan="1"><font {td_font_attributes}>{issue_summary}</font></td></tr>' \
+                             '</table>>' \
                     .format(table_attributes=table_attributes, th_font_attributes=th_font_attributes,
-                            issue_key=get_key(issue), td_font_attributes=td_font_attributes,
+                            issue_key=issue.get_key(), td_font_attributes=td_font_attributes,
                             issue_summary=summary)
         else:
             summary = summary.replace('"', '\\"')
             summary = summary.replace('\n', '\\n')
             if 'state' in elements_to_include:
-                if 'assignee' in elements_to_include and get_assignee(issue) is not None:
-                    node_label = '{} {} {}\\n{}'.format(get_key(issue), get_status_name(issue),
-                                                        get_assignee(issue)['emailAddress'][:2].upper(), summary)
+                if 'assignee' in elements_to_include and issue.get_assignee() is not None:
+                    node_label = '{} {} {}\\n{}'.format(issue.get_key(), issue.get_status_name(),
+                                                        issue.get_assignee_initials(), summary)
                 else:
-                    node_label = '{} {}\\n{}'.format(get_key(issue), get_status_name(issue), summary)
+                    node_label = '{} {}\\n{}'.format(issue.get_key(), issue.get_status_name(), summary)
             else:
-                node_label = '{}\\n{}'.format(get_key(issue), summary)
+                node_label = '{}\\n{}'.format(issue.get_key(), summary)
         return node_label
 
     def process_link(issue, link):
-        issue_key = get_key(issue)
+        issue_key = issue.get_key()
 
         if 'outwardIssue' in link:
             direction = 'outward'
@@ -417,7 +445,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             return
 
         linked_issue = link[direction + 'Issue']
-        linked_issue_key = get_key(linked_issue)
+        linked_issue_key = JiraIssue.get_key_from(linked_issue)
         if linked_issue_key in issue_excludes:
             log('Skipping ' + linked_issue_key + ' - explicitly excluded')
             return
@@ -425,10 +453,10 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         link_type = link['type'][direction]
 
         if ignore_closed:
-            if ('inwardIssue' in link) and (get_inward_issue_status_name(link) in 'Closed'):
+            if ('inwardIssue' in link) and (JiraIssue.get_inward_issue_status_name(link) in 'Closed'):
                 log('Skipping ' + linked_issue_key + ' - linked key is Closed')
                 return
-            if ('outwardIssue' in link) and (get_outward_issue_status_name(link) in 'Closed'):
+            if ('outwardIssue' in link) and (JiraIssue.get_outward_issue_status_name(link) in 'Closed'):
                 log('Skipping ' + linked_issue_key + ' - linked key is Closed')
                 return
 
@@ -444,7 +472,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         edge_options = {'label': link_type}
         if link_type in ["blocks", "is blocking", "is blocked by"]:
             edge_options.update(graph_config.get_edge_options('block'))
-            if get_statuscategory_name(issue).upper() == 'DONE':
+            if issue.get_statuscategory_name().upper() == 'DONE':
                 edge_options.update({'color': 'black'})
 
         if direction not in show_directions:
@@ -480,7 +508,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         issue = jira.issue_cache_get(issue_key)
         seen.append(issue_key)
 
-        issue_status_name = get_status_name(issue)
+        issue_status_name = issue.get_status_name()
 
         if ignore_closed and (issue_status_name in 'Closed'):
             log('Skipping ' + issue_key + ' - it is Closed')
@@ -491,7 +519,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             return graph
         graph.append(create_node_text(issue, islink=False))
         if 'labels' in elements_to_include:
-            card_labels[issue_key] = get_labels(issue)
+            card_labels[issue_key] = issue.get_labels()
 
         if remaining_depth_limit is not None:
             # update issue depth to the minimum depth observed
@@ -503,7 +531,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             if remaining_depth_limit < 0:
                 return graph
 
-        issuetype_name = get_issuetype_name(issue)
+        issuetype_name = issue.get_issuetype_name()
         if issuetype_name != 'Epic':
             card_states[issue_key] = issue_status_name.upper()
 
@@ -516,7 +544,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                 else:
                     issues = jira.query('"Epic Link" = "%s"' % issue_key)
                 for subtask in issues:
-                    subtask_key = get_key(subtask)
+                    subtask_key = JiraIssue.get_key_from(subtask)
 
                     log(issue_key + ' => has issue => ' + subtask_key)
                     edge = create_edge_text(create_node_key(issue_key),
@@ -532,9 +560,9 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                     jira.issue_cache_set(subtask)
 
             if not ignore_subtasks:
-                for subtask in get_subtasks(issue):
-                    subtask_key = get_key(subtask)
-                    if ignore_closed and (get_status_name(subtask) in 'Closed'):
+                for subtask in issue.get_subtasks():
+                    subtask_key = JiraIssue.get_key_from(subtask)
+                    if ignore_closed and (JiraIssue.get_status_name_from(subtask) in 'Closed'):
                         log('Skipping Subtask ' + subtask_key + ' - it is Closed')
                         continue
                     log(issue_key + ' => has subtask => ' + subtask_key)
@@ -544,7 +572,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                     graph.append(edge)
                     children.append(subtask_key)
                     card_supertasks[subtask_key] = issue_key
-        for other_link in get_issuelinks(issue):
+        for other_link in issue.get_issuelinks():
             result = process_link(issue, other_link)
             if result is not None:
                 (linked_issue_key, edge) = result
@@ -563,7 +591,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
         if isinstance(issue_key_or_issue, dict):
             issue = issue_key_or_issue
-            issue_key = get_key(issue_key_or_issue)
+            issue_key = JiraIssue.get_key_from(issue_key_or_issue)
         else:
             issue = None
             issue_key = issue_key_or_issue
@@ -629,7 +657,7 @@ def update_issue_graph(jira, issue_key, file_attachment_path):
 
         # append or replace the description's inline image
         issue = jira.get_issue(update_issue_key)
-        description = get_description(issue)
+        description = issue.get_description()
         previous_image = re.search(r"^(h3\.\s*Jira Dependency Graph\s+\!)([^\!]+)(\!)", description, re.MULTILINE)
         if previous_image is not None:
             # old_attachment_name = previous_image.group(2) # leaving deletion to humans, just in case
@@ -642,9 +670,6 @@ def update_issue_graph(jira, issue_key, file_attachment_path):
         updated_fields = {"fields": {"description": description}}
         payload = json.dumps(updated_fields)
         jira.update_issue(update_issue_key, payload)
-
-    def get_description(issue):
-        return issue['fields']['description']
 
     return update(issue_key, file_attachment_path)
 
@@ -934,13 +959,13 @@ def main():
 
     digraph = []
 
+    if label_tree:
+        digraph = digraph + ['\n\n// Labels'] + sorted(set(label_tree))
+
     if options.employ_subgraphs:
         subgraph_tree = generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph,
                                            graph_config)
         digraph = digraph + ['\n\n// Subgraphs'] + subgraph_tree
-
-    if label_tree:
-        digraph = digraph + ['\n\n// Labels'] + sorted(set(label_tree))
 
     if graph:
         digraph = digraph + ['\n\n// Graph'] + filter_duplicates(graph)
