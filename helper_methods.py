@@ -23,7 +23,6 @@ class Subgraph:
 
     def render_nodes(self):
         return ';'.join(['"{}"'.format(node_key) for node_key in self.nodes.keys()])
-        # return '"WEB-5542"\n"TECH-6992"\n"TECH-5796"'
 
     def render_children(self):
         return '\n'.join([child.render() for child in self.children.values()])
@@ -123,49 +122,35 @@ def invert_dict(d):
                 inverse[item].append(key)
     return inverse
 
-
-# def path_to_root(node, key):
-#     for k_name, k_tree in node.items():
-#         if k_name == key:
-#             return snake_case(k_name)
-#         else:
-#             result = path_to_root(k_tree, key)
-#             if result:
-#                 return snake_case(k_name) + "|" + path_to_root(k_tree, key)
-
 def path_to_root(node, key):
     for k_name, k_tree in node.items():
         if k_name == key:
             if len(k_tree):
-                return snake_case(k_name)
+                return [snake_case(k_name)]
             else:
                 return True
         else:
             result = path_to_root(k_tree, key)
             if result:
                 if result == True:
-                    return snake_case(k_name)
+                    return [snake_case(k_name)]
                 else:
-                    return snake_case(k_name) + '|' + result
-
+                    return [snake_case(k_name)] + result
 
 def common_path(node, keys):
-    # print('common_path::')
-    # print(f'node: {node}')
-    # print(f'keys: {keys}')
 
     if not isinstance(keys, list):
         raise Exception("keys must be a list")
     paths = [path_to_root(node, key) for key in keys]
-    # print(f'paths: {paths}')
+    print(f'paths: {paths}')
     try:
-        common_path_str = "".join(
+        common_path_arr = [
             c[0] for c in takewhile(lambda x: all(x[0] == y for y in x), zip(*paths))
-        )
+        ]
     except TypeError:
-        common_path_str = ""
+        common_path_arr = []
 
-    return common_path_str
+    return common_path_arr
 
 
 def graft_subgraph_tree_branches(subgraph_tree):
@@ -240,6 +225,12 @@ def render_clusters_1(clusters):
 
 
 def containing_cluster(path):
+    if not path:
+        return ''
     span = 2
-    words = path.split("|")
+    words = path if isinstance(path, list) else path.split("|") # temporary complexity while refactoring
     return ['cluster_' + "_".join(words[i:i + span]) for i in range(0, len(words), span)][-1]
+
+def sort_labels(labels):
+    return sorted([l for l in labels if re.search('[a-zA-Z]|$', l).group().islower()]) + \
+           sorted([l for l in labels if not re.search('[a-zA-Z]|$', l).group().islower()])

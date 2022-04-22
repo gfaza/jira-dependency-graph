@@ -31,9 +31,9 @@ from functools import lru_cache
 import inspect
 
 import html
-
-from helper_methods import invert_dict, common_path, path_to_root, snake_case, graft_subgraph_tree_branches, \
-    dict_to_attrs, containing_cluster, graphviz_node_string, create_node_key, create_edge_text
+from helper_methods import invert_dict, snake_case, graft_subgraph_tree_branches, \
+    dict_to_attrs, containing_cluster, graphviz_node_string, create_node_key, create_edge_text, common_path, \
+    sort_labels
 
 MAX_SUMMARY_LENGTH = 30
 MAX_QUERY_RESULTS = 300
@@ -878,7 +878,6 @@ def main():
         for line in graph:
             match_result = re.match(r'^"([\w\-]+)"', line)
             if match_result:
-                # log(f"line: {line}, match_result: {match_result}")
                 node_issue_key = match_result.group(1)
                 if card_levels[node_issue_key] > 0:
                     penwidth = '0.5'
@@ -960,7 +959,9 @@ def main():
     digraph = []
 
     if label_tree:
-        digraph = digraph + ['\n\n// Labels'] + sorted(set(label_tree))
+        # digraph = digraph + ['\n\n// Labels'] + sorted(set(label_tree), key=lambda s: s.lower())
+        # digraph = digraph + ['\n\n// Labels'] + list(set(label_tree))
+        digraph = digraph + ['\n\n// Labels'] + sort_labels(set(label_tree))
 
     if options.employ_subgraphs:
         subgraph_tree = generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph,
@@ -1042,13 +1043,20 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards
 
     graft_subgraph_tree_branches(subgraph_tree)
 
+    log(
+        f'subgraph_tree = {subgraph_tree}\n'
+        f'labels_to_cards = {labels_to_cards}'
+    )
     labels_to_paths = {label: common_path(subgraph_tree, keys) for label, keys in labels_to_cards.items()}
 
-    paths_to_labels = invert_dict(labels_to_paths)
-
-    clusters_to_labels = {}
-    for k, v in paths_to_labels.items():
-        clusters_to_labels[containing_cluster(k)] = v
+    labels_to_clusters = {k: containing_cluster(v) for k, v in labels_to_paths.items()}
+    log(
+        f'labels_to_clusters = {labels_to_clusters}'
+    )
+    clusters_to_labels = invert_dict(labels_to_clusters)
+    log(
+        f'clusters_to_labels = {clusters_to_labels}'
+    )
 
     subgraph_tree_str = render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config)
     subgraph_tree_str = re.sub(r';\s+;', ';', subgraph_tree_str)
