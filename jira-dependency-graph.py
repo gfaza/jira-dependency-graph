@@ -531,17 +531,20 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         if 'labels' in elements_to_include:
             card_labels[issue_key] = issue.get_labels()
 
+        current_depth = -1
         if remaining_depth_limit is not None:
             # update issue depth to the minimum depth observed
             current_depth = search_depth_limit - remaining_depth_limit
             if issue.get_level() is not None:
                 current_depth = min(current_depth, issue.get_level())
-            issue.set_level(current_depth)
+
             # decrease the remaining depth limit, and stop recursion if we've reached that limit
             remaining_depth_limit = search_depth_limit - current_depth
             remaining_depth_limit -= 1
             if remaining_depth_limit < 0:
                 return graph
+
+        issue.set_level(current_depth)
 
         issuetype_name = issue.get_issuetype_name()
         if issuetype_name != 'Epic':
@@ -597,10 +600,7 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         # for child_key in (x for x in children if x not in seen and x not in issue_excludes):
         for child_key in (x for x in children if x not in issue_excludes):
             seen_child = jira.issue_cache_get(child_key)
-            if not seen_child or (
-                    (remaining_depth_limit is not None)
-                    and (seen_child.get_level() is None or seen_child.get_level() > current_depth + 1)
-            ):
+            if (not seen_child) or (seen_child.get_level() is None) or (seen_child.get_level() > current_depth + 1):
                 walk(child_key, graph, remaining_depth_limit)
         return graph
 
