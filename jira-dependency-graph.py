@@ -344,7 +344,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         between issues. This will consider both subtasks and issue links.
     """
 
-    card_states = card_meta['card_states']
     card_epics = card_meta['card_epics']
     card_supertasks = card_meta['card_supertasks']
     card_labels = card_meta['card_labels']
@@ -546,14 +545,10 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
         issue.set_level(current_depth)
 
-        issuetype_name = issue.get_issuetype_name()
-        if issuetype_name != 'Epic':
-            card_states[issue_key] = issue_status_name.upper()
-
         children = []
 
         if not ignore_subtasks:
-            if issuetype_name == 'Epic' and not ignore_epic:
+            if issue.get_issuetype_name() == 'Epic' and not ignore_epic:
                 if ignore_closed:
                     issues = jira.query('"Epic Link" = "%s" AND status != Closed' % issue_key)
                 else:
@@ -847,7 +842,6 @@ def main():
     graph = []
     seen = []
     card_meta = {
-        'card_states': {},
         'card_epics': {},
         'card_supertasks': {},
         'card_labels': {},
@@ -870,12 +864,10 @@ def main():
     log(f'jira_issue_cache = {jira.get_issue_cache()}')
     log(f'graph = {graph}')
 
-    card_states = card_meta['card_states']
     card_epics = card_meta['card_epics']
     card_supertasks = card_meta['card_supertasks']
     card_labels = card_meta['card_labels']
 
-    log(f'card_states = {card_states}')
     log(f'card_epics = {card_epics}')
     log(f'card_supertasks = {card_supertasks}')
     log(f'card_labels = {card_labels}')
@@ -984,6 +976,10 @@ def main():
         digraph = digraph + ['\n\n// Labels'] + sort_labels(set(label_tree))
 
     if options.employ_subgraphs:
+        card_states = {issue_key: issue.get_status_name().upper()
+                       for issue_key, issue in jira.get_issue_cache().items()
+                       if issue.get_issuetype_name() != 'Epic'}
+
         subgraph_tree = generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph,
                                            graph_config)
         digraph = digraph + ['\n\n// Subgraphs'] + subgraph_tree
