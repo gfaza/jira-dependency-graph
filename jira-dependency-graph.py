@@ -136,16 +136,16 @@ class JiraSearch(object):
     def get_query_uri(self, jql):
         return self.__base_url + '/issues/?jql=' + requests.utils.quote(jql)
 
-    def issue_cache_get(self, issue_key):
+    def issue_cache_get(self, issue_key, or_set=False):
         issue = self.issue_cache.get(issue_key)
-        if issue is None:
-            issue = self.get_issue(issue_key)
-            self.issue_cache_set(issue)
-        return self.issue_cache[issue_key]
+        if issue is None and or_set:
+            self.issue_cache_set(self.get_issue(issue_key))
+        return self.issue_cache.get(issue_key)
 
-    def issue_cache_set(self, issue):
-        self.issue_cache_prep(issue)
-        self.issue_cache[issue['key']] = JiraIssue(issue)
+    def issue_cache_set(self, issue_data):
+        self.issue_cache_prep(issue_data)
+        issue = JiraIssue(issue_data)
+        self.issue_cache[issue.get_key()] = issue
 
     @staticmethod
     def issue_cache_prep(issue):
@@ -159,6 +159,7 @@ class JiraSearch(object):
 
 class JiraIssue:
     __data = None
+    __level = None
 
     def __init__(self, data):
         self.__data = data
@@ -198,6 +199,9 @@ class JiraIssue:
     def get_assignee_initials(self):
         return self.get_assignee()['emailAddress'][:2].upper()
 
+    def get_assignee_name(self):
+        return self.get_assignee()['displayName']
+
     def get_summary(self):
         return self.__data['fields']['summary']
 
@@ -211,6 +215,12 @@ class JiraIssue:
 
     def get_description(self):
         return self.__data['fields']['description']
+
+    def get_level(self):
+        return self.__level
+
+    def set_level(self, level):
+        self.__level = level
 
 
 class GraphConfig:
@@ -334,7 +344,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         between issues. This will consider both subtasks and issue links.
     """
 
-    card_levels = card_meta['card_levels']
     card_states = card_meta['card_states']
     card_epics = card_meta['card_epics']
     card_supertasks = card_meta['card_supertasks']
@@ -505,8 +514,9 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         log("Walking: {}, remaining_depth_limit={}".format(issue_key, remaining_depth_limit))
 
         issue_cache_sanity_check(issue_key)
-        issue = jira.issue_cache_get(issue_key)
-        seen.append(issue_key)
+        issue = jira.issue_cache_get(issue_key, or_set=True)
+        if issue_key not in seen:
+            seen.append(issue_key)
 
         issue_status_name = issue.get_status_name()
 
@@ -524,7 +534,9 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
         if remaining_depth_limit is not None:
             # update issue depth to the minimum depth observed
             current_depth = search_depth_limit - remaining_depth_limit
-            current_depth = card_levels[issue_key] = min(card_levels.get(issue_key, current_depth), current_depth)
+            if issue.get_level() is not None:
+                current_depth = min(current_depth, issue.get_level())
+            issue.set_level(current_depth)
             # decrease the remaining depth limit, and stop recursion if we've reached that limit
             remaining_depth_limit = search_depth_limit - current_depth
             remaining_depth_limit -= 1
@@ -557,7 +569,8 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
                     # let's avoid re-querying this when we iterate over children, since we've already got it here
                     issue_cache_sanity_check(subtask)
-                    jira.issue_cache_set(subtask)
+                    if subtask_key not in jira.get_issue_cache():
+                        jira.issue_cache_set(subtask)
 
             if not ignore_subtasks:
                 for subtask in issue.get_subtasks():
@@ -581,8 +594,14 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
                 if edge is not None:
                     graph.append(edge)
         # now construct graph data for all subtasks and links of this issue
-        for child in (x for x in children if x not in seen and x not in issue_excludes):
-            walk(child, graph, remaining_depth_limit)
+        # for child_key in (x for x in children if x not in seen and x not in issue_excludes):
+        for child_key in (x for x in children if x not in issue_excludes):
+            seen_child = jira.issue_cache_get(child_key)
+            if not seen_child or (
+                    (remaining_depth_limit is not None)
+                    and (seen_child.get_level() is None or seen_child.get_level() > current_depth + 1)
+            ):
+                walk(child_key, graph, remaining_depth_limit)
         return graph
 
     def issue_cache_sanity_check(issue_key_or_issue):
@@ -828,7 +847,6 @@ def main():
     graph = []
     seen = []
     card_meta = {
-        'card_levels': {k: 0 for k in options.issues},
         'card_states': {},
         'card_epics': {},
         'card_supertasks': {},
@@ -837,7 +855,8 @@ def main():
 
     walk_depth_limit = None if options.depth_limit is None else options.depth_limit + 1
 
-    for issue in (x for x in options.issues if x not in seen and x not in options.issue_excludes):
+    # for issue in (x for x in options.issues if x not in seen and x not in options.issue_excludes):
+    for issue in (x for x in options.issues if x not in options.issue_excludes):
         (g, s) = build_graph_data(issue, jira, options.excludes, options.show_directions, options.directions,
                                   options.includes, options.issue_excludes, options.closed, options.ignore_epic,
                                   options.ignore_subtasks, options.traverse, options.word_wrap, walk_depth_limit,
@@ -851,13 +870,11 @@ def main():
     log(f'jira_issue_cache = {jira.get_issue_cache()}')
     log(f'graph = {graph}')
 
-    card_levels = card_meta['card_levels']
     card_states = card_meta['card_states']
     card_epics = card_meta['card_epics']
     card_supertasks = card_meta['card_supertasks']
     card_labels = card_meta['card_labels']
 
-    log(f'card_levels = {card_levels}')
     log(f'card_states = {card_states}')
     log(f'card_epics = {card_epics}')
     log(f'card_supertasks = {card_supertasks}')
@@ -869,6 +886,9 @@ def main():
 
     cards_beyond_depth_limit = []
     if options.depth_limit is not None:
+        card_levels = {key: issue.get_level() for key, issue in jira.get_issue_cache().items()
+                       if issue.get_level() is not None}
+        # log(f'card_levels: {card_levels}')
         cards_beyond_depth_limit = [k for k, depth in card_levels.items() if depth > options.depth_limit]
         graph = [line for line in graph if
                  all(create_node_key(issue_key) not in line for issue_key in cards_beyond_depth_limit)]
@@ -1038,8 +1058,8 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards
 
             node_issue_parent = node_issue_card_supertask or node_issue_card_epic
 
-            build_subgraph_tree_2(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
-                                  subgraph_tree)
+            build_subgraph_tree(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
+                                subgraph_tree)
 
     graft_subgraph_tree_branches(subgraph_tree)
 
@@ -1063,8 +1083,8 @@ def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards
     return [subgraph_tree_str]
 
 
-def build_subgraph_tree_2(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
-                          subgraph_tree):
+def build_subgraph_tree(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
+                        subgraph_tree):
     if node_issue_parent or node_issue_key not in (list(card_epics.values()) + list(card_supertasks.values())):
         if not node_issue_parent in subgraph_tree.keys():
             subgraph_tree[node_issue_parent] = {}
@@ -1072,21 +1092,6 @@ def build_subgraph_tree_2(card_epics, card_supertasks, node_issue_card_state, no
             subgraph_tree[node_issue_parent][node_issue_card_state] = {}
         if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
             subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
-
-
-def render_subgraphs1(subgraph_tree, prefix=''):
-    subgraph_str = ''
-    for parent_name, child_nodes in subgraph_tree.items():
-        if prefix:
-            cluster_name = snake_case(prefix + '_' + parent_name)
-        else:
-            cluster_name = snake_case(parent_name)
-        subgraph_str = subgraph_str + "subgraph cluster_{cluster_name} {{\"{parent_name}\";\n{child_clusters}}};\n".format(
-            cluster_name=cluster_name,
-            parent_name=parent_name,
-            child_clusters=render_subgraphs(child_nodes, parent_name)
-        )
-    return subgraph_str
 
 
 def render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config):
