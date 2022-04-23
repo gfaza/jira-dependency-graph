@@ -346,7 +346,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
 
     card_epics = card_meta['card_epics']
     card_supertasks = card_meta['card_supertasks']
-    card_labels = card_meta['card_labels']
 
     def create_node_text(issue, islink=True):
         if islink:
@@ -527,8 +526,6 @@ def build_graph_data(start_issue_key, jira, excludes, show_directions, direction
             log('Skipping ' + issue_key + ' - not traversing to a different project')
             return graph
         graph.append(create_node_text(issue, islink=False))
-        if 'labels' in elements_to_include:
-            card_labels[issue_key] = issue.get_labels()
 
         current_depth = -1
         if remaining_depth_limit is not None:
@@ -844,7 +841,6 @@ def main():
     card_meta = {
         'card_epics': {},
         'card_supertasks': {},
-        'card_labels': {},
     }
 
     walk_depth_limit = None if options.depth_limit is None else options.depth_limit + 1
@@ -866,11 +862,9 @@ def main():
 
     card_epics = card_meta['card_epics']
     card_supertasks = card_meta['card_supertasks']
-    card_labels = card_meta['card_labels']
 
     log(f'card_epics = {card_epics}')
     log(f'card_supertasks = {card_supertasks}')
-    log(f'card_labels = {card_labels}')
 
     log(f'graph_config = {graph_config}')
     log(f'elements_to_include = {elements_to_include}')
@@ -920,8 +914,9 @@ def main():
             labels_to_hide = options.label_hide
 
         # build cards_to_labels, omitting cards outside of depth limit
-        cards_to_labels = card_labels
-        cards_to_labels = {k: v for k, v in cards_to_labels.items() if k not in cards_beyond_depth_limit}
+        cards_to_labels = {issue_key: issue.get_labels()
+                           for issue_key, issue in jira.get_issue_cache().items()
+                           if issue.get_level() is not None and issue_key not in cards_beyond_depth_limit}
         labels_to_cards = invert_dict(cards_to_labels)
 
         # re-label as necessary
