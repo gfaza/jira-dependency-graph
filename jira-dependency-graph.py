@@ -55,7 +55,8 @@ class JiraSearch(object):
         self.auth = auth
         self.no_verify_ssl = no_verify_ssl
         self.fields = ','.join(
-            ['key', 'summary', 'status', 'description', 'issuetype', 'issuelinks', 'subtasks', 'labels', 'assignee'])
+            ['key', 'summary', 'status', 'description', 'issuetype', 'issuelinks', 'subtasks', 'labels', 'assignee',
+             'parent'])
         self.issue_cache = {}
 
     def get(self, uri, params={}):
@@ -164,15 +165,26 @@ class JiraIssue:
     def __init__(self, data):
         self.__data = data
 
+    def get_data(self):
+        return self.__data
+
     def get_key(self):
         return self.__data['key']
 
     @staticmethod
     def get_key_from(data):
-        return data['key']
+        return data.get('key')
 
     def get_issuetype_name(self):
         return self.__data['fields']['issuetype']['name']
+
+    @staticmethod
+    def get_issuetype_name_from(data):
+        return data.get('fields', {}).get('issuetype', {}).get('name')
+
+    @staticmethod
+    def get_issuetype_subtask_from(data):
+        return data.get('fields', {}).get('issuetype', {}).get('subtask')
 
     def get_status_name(self):
         return self.__data['fields']['status']['name']
@@ -186,6 +198,9 @@ class JiraIssue:
 
     def get_labels(self):
         return self.__data['fields']['labels'] if 'labels' in self.__data['fields'] else []
+
+    def get_parent(self):
+        return self.__data['fields']['parent'] if 'parent' in self.__data['fields'] else {}
 
     def get_subtasks(self):
         return self.__data['fields']['subtasks'] if 'subtasks' in self.__data['fields'] else []
@@ -667,7 +682,7 @@ def update_issue_graph(jira, issue_key, file_attachment_path):
         image_tag = "%s|width=%d,height=%d" % (attachment_name, width, height)
 
         # append or replace the description's inline image
-        issue = jira.get_issue(update_issue_key)
+        issue = JiraIssue(jira.get_issue(update_issue_key))
         description = issue.get_description()
         previous_image = re.search(r"^(h3\.\s*Jira Dependency Graph\s+\!)([^\!]+)(\!)", description, re.MULTILINE)
         if previous_image is not None:
@@ -971,12 +986,7 @@ def main():
         digraph = digraph + ['\n\n// Labels'] + sort_labels(set(label_tree))
 
     if options.employ_subgraphs:
-        card_states = {issue_key: issue.get_status_name().upper()
-                       for issue_key, issue in jira.get_issue_cache().items()
-                       if issue.get_issuetype_name() != 'Epic'}
-
-        subgraph_tree = generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph,
-                                           graph_config)
+        subgraph_tree = generate_subgraphs(labels_to_cards, graph_config, jira.get_issue_cache())
         digraph = digraph + ['\n\n// Subgraphs'] + subgraph_tree
 
     if graph:
@@ -1035,54 +1045,42 @@ def redact_namespace(config, sensitive_keys=['user', 'password']):
         delattr(config, key)
 
 
-def generate_subgraphs(card_epics, card_states, card_supertasks, labels_to_cards, graph, graph_config):
+def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
     subgraph_tree = {}
 
-    for line in graph:
-        # detect and treat node entry
-        match_result = re.match(r'^"([A-Z]+-[0-9]+)" *?(?!-)', line)
-        if match_result:
-            node_issue_key = match_result.group(1)
-            node_issue_card_epic = card_epics.get(node_issue_key, '')
-            node_issue_card_supertask = card_supertasks.get(node_issue_key, '')
-            node_issue_card_state = card_states.get(node_issue_key, '')
+    card_states = {issue_key: issue.get_status_name().upper()
+                   for issue_key, issue in issue_cache.items()
+                   if issue.get_issuetype_name() != 'Epic'}
 
-            node_issue_parent = node_issue_card_supertask or node_issue_card_epic
+    card_to_parent = {issue_key: JiraIssue.get_key_from(issue.get_parent())
+                      for issue_key, issue in issue_cache.items()
+                      if JiraIssue.get_issuetype_name_from(issue.get_parent())
+                      and JiraIssue.get_key_from(issue.get_parent()) in issue_cache}
 
-            build_subgraph_tree(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
-                                subgraph_tree)
+    issues_to_graph = {issue_key: issue for issue_key, issue in issue_cache.items() if issue.get_level() is not None}
+
+    for issue_key, issue in issues_to_graph.items():
+        node_issue_card_state = card_states.get(issue_key, '')
+        node_issue_parent = card_to_parent.get(issue_key, '')
+        if node_issue_parent or issue_key not in (list(card_to_parent.values())):
+            if not node_issue_parent in subgraph_tree.keys():
+                subgraph_tree[node_issue_parent] = {}
+            if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
+                subgraph_tree[node_issue_parent][node_issue_card_state] = {}
+            if not issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
+                subgraph_tree[node_issue_parent][node_issue_card_state][issue_key] = {}
 
     graft_subgraph_tree_branches(subgraph_tree)
 
-    log(
-        f'subgraph_tree = {subgraph_tree}\n'
-        f'labels_to_cards = {labels_to_cards}'
-    )
     labels_to_paths = {label: common_path(subgraph_tree, keys) for label, keys in labels_to_cards.items()}
 
     labels_to_clusters = {k: containing_cluster(v) for k, v in labels_to_paths.items()}
-    log(
-        f'labels_to_clusters = {labels_to_clusters}'
-    )
+
     clusters_to_labels = invert_dict(labels_to_clusters)
-    log(
-        f'clusters_to_labels = {clusters_to_labels}'
-    )
 
     subgraph_tree_str = render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config)
     subgraph_tree_str = re.sub(r';\s+;', ';', subgraph_tree_str)
     return [subgraph_tree_str]
-
-
-def build_subgraph_tree(card_epics, card_supertasks, node_issue_card_state, node_issue_key, node_issue_parent,
-                        subgraph_tree):
-    if node_issue_parent or node_issue_key not in (list(card_epics.values()) + list(card_supertasks.values())):
-        if not node_issue_parent in subgraph_tree.keys():
-            subgraph_tree[node_issue_parent] = {}
-        if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
-            subgraph_tree[node_issue_parent][node_issue_card_state] = {}
-        if not node_issue_key in subgraph_tree[node_issue_parent][node_issue_card_state].keys():
-            subgraph_tree[node_issue_parent][node_issue_card_state][node_issue_key] = {}
 
 
 def render_issue_subgraph(subgraph_tree, clusters_to_labels, graph_config):
