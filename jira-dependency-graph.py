@@ -1502,7 +1502,7 @@ def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
     subgraph_trees = render_issue_subgraph(
         subgraph_tree, clusters_to_labels, workflow_states
     )
-    subgraph_trees_str = '\n'.join([subgraph_tree.render() for subgraph_tree in subgraph_trees])
+    subgraph_trees_str = '\n'.join([subgraph_tree.render() for subgraph_tree in subgraph_trees.values()])
     subgraph_trees_str = re.sub(r";\s+;", ";", subgraph_trees_str)
     log(f"(\n# subgraph_tree\n{subgraph_tree},")
     log(f"# clusters_to_labels\n{clusters_to_labels},")

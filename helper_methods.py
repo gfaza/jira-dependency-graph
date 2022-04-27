@@ -41,9 +41,9 @@ class Subgraph:
         )
 
     def render_children(self, debug=False):
-        # return '\n'.join([child.render(debug) for child in self.children.values()])
+        return '\n'.join([child.render(debug) for child in self.children.values()])
         print(f'self.children: {self.children}')
-        return '\n'.join([child.render(debug) for child in self.children])
+        # return '\n'.join([child.render(debug) for child in self.children])
 
     def render_issue_state_edge(self, debug=False):
         return self.issue_state_edge or ''
@@ -69,15 +69,6 @@ class Subgraph:
 
 class CardSubgraph(Subgraph):
     def render(self, debug=False):
-        # return """
-        #     subgraph cluster_{key} {{
-        #     {attrs}
-        #     {children}
-        #     }}""".format(
-        #     key=self.key,
-        #     attrs=self.render_attrs(debug),
-        #     children=self.render_nodes(debug) + self.render_children(debug),
-        # )
         return """
             subgraph cluster_{key} {{
             {attrs}
@@ -285,20 +276,24 @@ def render_issue_subgraph(subgraph_tree, clusters_to_labels, workflow_states):
     debug = False
 
     subgraph_strs = []
-    subgraph_parents = []
+    # subgraph_parents = []
+    subgraph_parents = {}
 
     for issue_name, child_states in subgraph_tree.items():
         cluster_name = snake_case('cluster_{}'.format(issue_name))
         cluster_labels = clusters_to_labels.get(cluster_name, [])
         subgraphs = []
-        subgraph_objs = []
+        # subgraphs = {}
+        # subgraph_objs = []
+        subgraph_objs = {}
         for state, children in child_states.items():
             issue_state = snake_case("{} {}".format(issue_name, state))
             node_sets = gen_issue_state_subgraph_nodeset(issue_state, clusters_to_labels, children)
             child_graphs = {k: contents for k, contents in children.items() if contents}
             child_clusters = render_issue_subgraph(child_graphs, clusters_to_labels, workflow_states)
             sg1 = Subgraph(issue_state, node_sets=node_sets, children=child_clusters)
-            subgraph_objs.append(sg1)
+            # subgraph_objs.append(sg1)
+            subgraph_objs[issue_state] = sg1
             print(f'\nclusters_to_labels: {clusters_to_labels}\n')
             print(f'\nworkflow_states: {workflow_states}\n')
             print(f'\nchild_graphs: {child_graphs}\n')
@@ -327,7 +322,8 @@ def render_issue_subgraph(subgraph_tree, clusters_to_labels, workflow_states):
         sg = CardSubgraph(snake_case(issue_name),
                           node_sets=[[issue_name], cluster_labels],
                           children=subgraph_objs)
-        subgraph_parents.append(sg)
+        # subgraph_parents.append(sg)
+        subgraph_parents[snake_case(issue_name)] = sg
         subgraph_strs.append(
             """
             subgraph cluster_{key} {{
