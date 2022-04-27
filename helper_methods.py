@@ -12,6 +12,10 @@ class Subgraph:
         self.key = key
         self.node_sets = node_sets
         self.children = children
+        self.issue_state_edge = None
+
+    def set_issue_state_edge(self, edge):
+        self.issue_state_edge = edge
 
     def render_attrs(self, debug=False):
         if debug:
@@ -26,7 +30,7 @@ class Subgraph:
             attrs = {"shape": "rarrow"}
         else:
             attrs = {"style": "invis", "shape": "point"}
-        return "{key}[{attrs}]".format(
+        return "{key} [{attrs}]".format(
             key=self.key, attrs=dict_to_attrs(attrs)
         )
 
@@ -37,7 +41,12 @@ class Subgraph:
         )
 
     def render_children(self, debug=False):
-        return '\n'.join([child.render(debug) for child in self.children.values()])
+        # return '\n'.join([child.render(debug) for child in self.children.values()])
+        print(f'self.children: {self.children}')
+        return '\n'.join([child.render(debug) for child in self.children])
+
+    def render_issue_state_edge(self, debug=False):
+        return self.issue_state_edge or ''
 
     def render(self, debug=False):
         return """
@@ -46,25 +55,42 @@ class Subgraph:
             {point}
             {nodes}
             {children}
-            }}""".format(
+            }};
+            {issue_state_edge}
+            """.format(
             key=self.key,
             attrs=self.render_attrs(debug),
             point=self.render_point(debug),
             nodes=self.render_nodes(debug),
             children=self.render_children(debug),
+            issue_state_edge=self.render_issue_state_edge(debug),
         )
 
 
 class CardSubgraph(Subgraph):
     def render(self, debug=False):
+        # return """
+        #     subgraph cluster_{key} {{
+        #     {attrs}
+        #     {children}
+        #     }}""".format(
+        #     key=self.key,
+        #     attrs=self.render_attrs(debug),
+        #     children=self.render_nodes(debug) + self.render_children(debug),
+        # )
         return """
             subgraph cluster_{key} {{
             {attrs}
+            {nodes}
             {children}
-            }}""".format(
+            }};
+            {issue_state_edge}
+            """.format(
             key=self.key,
             attrs=self.render_attrs(debug),
-            children=self.render_nodes(debug) + self.render_children(debug),
+            nodes=self.render_nodes(debug),
+            children=self.render_children(debug),
+            issue_state_edge=self.render_issue_state_edge(debug),
         )
 
 
@@ -257,30 +283,27 @@ def sort_labels(labels):
 
 def render_issue_subgraph(subgraph_tree, clusters_to_labels, workflow_states):
     debug = False
-    subgraph_attrs = {}
-    if debug:
-        subgraph_node_attrs = {'shape': 'rarrow'}
-    else:
-        subgraph_attrs = {'style': 'invis'}
-        subgraph_node_attrs = {'style': 'invis', 'shape': 'point'}
 
     subgraph_strs = []
+    subgraph_parents = []
 
     for issue_name, child_states in subgraph_tree.items():
         cluster_name = snake_case('cluster_{}'.format(issue_name))
         cluster_labels = clusters_to_labels.get(cluster_name, [])
-        issue_subgraphs = []
+        subgraphs = []
+        subgraph_objs = []
         for state, children in child_states.items():
             issue_state = snake_case("{} {}".format(issue_name, state))
-            state_cluster_name = snake_case('cluster_{}'.format(issue_state))
-            state_cluster_labels = clusters_to_labels.get(state_cluster_name, [])
-            child_node_keys = [k for k, contents in children.items() if not contents]
+            node_sets = gen_issue_state_subgraph_nodeset(issue_state, clusters_to_labels, children)
             child_graphs = {k: contents for k, contents in children.items() if contents}
-            sg = Subgraph(issue_state, node_sets=[
-                [k for k in child_node_keys if k],
-                [k for k in state_cluster_labels if k]
-            ])
-            issue_subgraphs.append("""
+            child_clusters = render_issue_subgraph(child_graphs, clusters_to_labels, workflow_states)
+            sg1 = Subgraph(issue_state, node_sets=node_sets, children=child_clusters)
+            subgraph_objs.append(sg1)
+            print(f'\nclusters_to_labels: {clusters_to_labels}\n')
+            print(f'\nworkflow_states: {workflow_states}\n')
+            print(f'\nchild_graphs: {child_graphs}\n')
+            print(f'\nchild_clusters: {child_clusters}\n')
+            subgraphs.append("""
                 subgraph cluster_{key} {{
                 {attrs}
                 {point}
@@ -288,41 +311,56 @@ def render_issue_subgraph(subgraph_tree, clusters_to_labels, workflow_states):
                 {child_clusters}
                 }};
             """.format(
-                key=sg.key,
-                attrs=sg.render_attrs(debug),
-                point=sg.render_point(debug),
-                nodes=sg.render_nodes(debug),
-                child_clusters=render_issue_subgraph(child_graphs, clusters_to_labels, workflow_states),
+                key=sg1.key,
+                attrs=sg1.render_attrs(debug),
+                point=sg1.render_point(debug),
+                nodes=sg1.render_nodes(debug),
+                child_clusters=child_clusters,
+                # child_clusters=sg1.render_children(debug),
             ))
-
         present_epic_state_edges_str = issue_state_edges(issue_name, child_states, workflow_states, debug)
+        subgraphs.append(present_epic_state_edges_str)
+        sg1.set_issue_state_edge(present_epic_state_edges_str)
+        issue_subgraphs = subgraphs
 
-        issue_subgraphs.append(present_epic_state_edges_str)
-
-        if issue_subgraphs:
-            sg = Subgraph(snake_case(issue_name),
-                          node_sets=[[issue_name], cluster_labels])
-            subgraph_strs.append(
-                """
-                subgraph cluster_{key} {{
-                {sg_attr_str}
-                {elements}
-                {child_clusters}
-                }};
-                """.format(
-                    key=sg.key,
-                    sg_attr_str=sg.render_attrs(debug),
-                    elements=sg.render_nodes(debug),
-                    child_clusters='\n'.join(issue_subgraphs),
-                ))
-        else:
-            elements = [issue_name if issue_name else ''] + cluster_labels
-            elements = "\n".join(['"{e}"'.format(e=e) for e in elements if e])
-            subgraph_strs.append("{issue_name}".format(
-                issue_name=elements,
+        # if issue_subgraphs:
+        sg = CardSubgraph(snake_case(issue_name),
+                          node_sets=[[issue_name], cluster_labels],
+                          children=subgraph_objs)
+        subgraph_parents.append(sg)
+        subgraph_strs.append(
+            """
+            subgraph cluster_{key} {{
+            {sg_attr_str}
+            {elements}
+            {child_clusters}
+            }};
+            """.format(
+                key=sg.key,
+                sg_attr_str=sg.render_attrs(debug),
+                elements=sg.render_nodes(debug),
+                child_clusters='\n'.join(issue_subgraphs),
             ))
+        # else:
+        #     elements = [issue_name if issue_name else ''] + cluster_labels
+        #     elements = "\n".join(['"{e}"'.format(e=e) for e in elements if e])
+        #     subgraph_strs.append("{issue_name}".format(
+        #         issue_name=elements,
+        #     ))
 
-    return "\n".join(subgraph_strs)
+    # return "\n".join(subgraph_strs)
+    return subgraph_parents
+
+
+def gen_issue_state_subgraph_nodeset(issue_state, clusters_to_labels, children):
+    state_cluster_name = snake_case('cluster_{}'.format(issue_state))
+    state_cluster_labels = clusters_to_labels.get(state_cluster_name, [])
+    child_node_keys = [k for k, contents in children.items() if not contents]
+    node_sets = [
+        [k for k in child_node_keys if k],
+        [k for k in state_cluster_labels if k]
+    ]
+    return node_sets
 
 
 def issue_state_edges(issue_name, child_states, workflow_states, debug_subgraphs):

@@ -1496,16 +1496,19 @@ def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
     workflow_states = ["open", "ready to plan"] + [
         snake_case(state) for state in graph_config.get_card_states("story")
     ]
-    log(f"subgraph_tree = {subgraph_tree}")
-    log(f"clusters_to_labels = {clusters_to_labels}")
-    log(f"subgraph_tree = {subgraph_tree}")
-    log(f"workflow_states = {workflow_states}")
-    subgraph_tree_str = render_issue_subgraph(
+    # subgraph_tree_str = render_issue_subgraph(
+    #     subgraph_tree, clusters_to_labels, workflow_states
+    # )
+    subgraph_trees = render_issue_subgraph(
         subgraph_tree, clusters_to_labels, workflow_states
     )
-    subgraph_tree_str = re.sub(r";\s+;", ";", subgraph_tree_str)
-    log(f"subgraph_tree_str = {subgraph_tree_str}")
-    return [subgraph_tree_str]
+    subgraph_trees_str = '\n'.join([subgraph_tree.render() for subgraph_tree in subgraph_trees])
+    subgraph_trees_str = re.sub(r";\s+;", ";", subgraph_trees_str)
+    log(f"(\n# subgraph_tree\n{subgraph_tree},")
+    log(f"# clusters_to_labels\n{clusters_to_labels},")
+    log(f"# workflow_states\n{workflow_states},")
+    log(f"# subgraph_tree_str_expected\n{subgraph_trees_str}),")
+    return [subgraph_trees_str]
 
 
 if __name__ == "__main__":
