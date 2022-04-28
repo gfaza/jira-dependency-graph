@@ -19,7 +19,7 @@ class Subgraph:
 
     def render_attrs(self, debug=False):
         if debug:
-            attrs = {"style": "invix"}
+            attrs = {"style": ""}
         else:
             attrs = {"style": "invis"}
         attrs["label"] = 'cluster_' + self.key
@@ -27,7 +27,7 @@ class Subgraph:
 
     def render_point(self, debug=False):
         if debug:
-            attrs = {"shape": "rarrow"}
+            attrs = {"style": "", "shape": "rarrow"}
         else:
             attrs = {"style": "invis", "shape": "point"}
         return "{key} [{attrs}]".format(
@@ -321,7 +321,9 @@ def issue_state_edges(issue_name, child_states, workflow_states, debug_subgraphs
     present_epic_state_edges_str = ''
     if present_epic_states:
         epic_state_edge_attrs = {'weight': '4'}
-        if not debug_subgraphs:
+        if debug_subgraphs:
+            epic_state_edge_attrs['style'] = ''
+        else:
             epic_state_edge_attrs['style'] = 'invis'
 
         present_epic_state_edges_str = '{present_epic_state_edges} [{edge_attrs}]'.format(
