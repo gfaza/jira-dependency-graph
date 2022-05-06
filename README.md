@@ -202,17 +202,17 @@ Things included in these changes:
 
 5. When using the config directory, you'll need to add the share to that directory by adding the following to your command:
     ```bash
-    $PWD/config:/config
+    $PWD/config:/jira/config
     ```
 
 6. If you prefer to use your own installation of Graphviz, you can pipe the output of using `--local` to it, such as
     ```bash
-    > docker run -v $PWD/config:/config -v $PWD/out:/out jira python jira-dependency-graph.py --local STORY-123 | dot -Tpng > ~/Desktop/STORY-123-graph.png
+    > docker run -v $PWD/config:/jira/config -v $PWD/out:/jira/out jira python jira-dependency-graph.py --local STORY-123 | dot -Tpng > ~/Desktop/STORY-123-graph.png
     ```
 
 7. The non-`--local` version seemed broken since google isn't handling that endpoint anymore, so Graphviz is now included in the docker image.  i.e., we're no longer required to use --local then pipe to dot (Graphviz) on your host machine.
     ```bash
-    > docker run -v $PWD/config:/config -v $PWD/out:/out jira python jira-dependency-graph.py STORY-123
+    > docker run -v $PWD/config:/jira/config -v $PWD/out:/jira/out jira python jira-dependency-graph.py STORY-123
     ```
 
 8. An additional artifact when this script is executed without `--local`, will be a PDF version of the diagram, where each node on the diagram hyperlinks you to its corresponding card on Jira
@@ -258,7 +258,7 @@ Things included in these changes:
     5. ***labels:*** A means of consolidating similar labels to simplify graphing, as well as a means of ignoring/omitting certain labels from appearing.
     6. Executing the command for a value of `color-demo` in place of an issue key will produce a partial preview of the graph configuration.
        ```bash
-       > docker run -v $PWD/config:/config -v $PWD/out:/out jira python jira-dependency-graph.py color-demo
+       > docker run -v $PWD/config:/jira/config -v $PWD/out:/jira/out jira python jira-dependency-graph.py color-demo
        ```
 
 

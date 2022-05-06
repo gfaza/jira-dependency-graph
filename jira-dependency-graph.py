@@ -539,8 +539,9 @@ def build_graph_data(
                 th_font_attributes=th_font_attributes,
                 td_font_attributes=td_font_attributes,
                 issue_key=issue.get_key(),
-                issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ''),
-                issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
+                # space required in docker version ... otherwise the empty <font> tag throws a syntax error (!?)
+                issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ' '),
+                issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ' '),
                 issue_summary=summary,
             )
         else:
@@ -769,7 +770,7 @@ def build_graph_data(
                     "status": {"name": state, "statusCategory": {"name": "name"}},
                     "issuetype": {"name": issue_type_name},
                 }
-                issue = {"key": issue_key, "fields": issue_fields}
+                issue = JiraIssue({"key": issue_key, "fields": issue_fields})
                 issue_type_nodes.append(create_node_text(issue, islink=False))
                 if issue_key_prior is not None:
                     graph.append(
@@ -1237,9 +1238,9 @@ def main():
         graph = depth_relative_node_graph
 
     labels_to_cards = {}
-    if "labels" in elements_to_include:
-        label_tree = []
 
+    label_tree = []
+    if "labels" in elements_to_include:
         labels_to_consolidate = {}
         issue_labels = graph_config.labels()
 
