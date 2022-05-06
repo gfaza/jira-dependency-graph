@@ -1383,7 +1383,14 @@ def main():
         digraph = digraph + ["\n\n// Subgraphs"] + subgraph_tree
 
     if graph:
-        digraph = digraph + ["\n\n// Graph"] + filter_duplicates(graph)
+        filtered_graph = filter_duplicates(graph)
+        digraph = digraph + ["\n\n// Graph"] + filtered_graph
+
+        log(f"\n\nfiltered_graph: {filtered_graph}\n\n")
+        jira_issue_cache_for_graph = {
+            k: {'card_level': obj.get_level()} for k, obj in jira.get_issue_cache().items()
+        }
+        log(f"\n\njira_issue_cache_for_graph: {jira_issue_cache_for_graph}\n\n")
 
     graph_attributes = {"rankdir": options.graph_rank_direction}
     if "graph_arguments" in elements_to_include:
