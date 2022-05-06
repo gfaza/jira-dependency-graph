@@ -278,6 +278,8 @@ class JiraIssue:
     def get_assignee_initials(self):
         if self.get_assignee():
             return self.get_assignee()["emailAddress"][:2].upper()
+        else:
+            return ''
 
     def get_assignee_name(self):
         return self.get_assignee()["displayName"]
@@ -522,66 +524,35 @@ def build_graph_data(
             table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
             th_font_attributes = 'face="Impact"'
             td_font_attributes = ""
-            if "state" in elements_to_include:
-                if "assignee" in elements_to_include and issue.get_assignee() is not None:
-                    label_template = Template(
-                        "<<table $table_attributes>"
-                        "<tr>"
-                        '<td align="center"><font $th_font_attributes>$issue_key</font></td>'
-                        '<td align="center"><font $th_font_attributes>$issue_state</font></td>'
-                        '<td align="center"><font $th_font_attributes>$issue_assignee</font></td>'
-                        "</tr>"
-                        '<tr><td align="center" colspan="3"><font $td_font_attributes>$issue_summary</font></td></tr>'
-                        "</table>>"
-                    )
-                else:
-                    label_template = Template(
-                        "<<table $table_attributes>"
-                        "<tr>"
-                        '<td align="center"><font $th_font_attributes>$issue_key</font></td>'
-                        '<td align="center"><font $th_font_attributes>$issue_state</font></td>'
-                        "</tr>"
-                        '<tr><td align="center" colspan="2"><font $td_font_attributes>$issue_summary</font></td></tr>'
-                        "</table>>"
-                    )
-            else:
-                label_template = Template(
-                    "<<table $table_attributes>"
-                    "<tr>"
-                    '<td align="center"><font $th_font_attributes>$issue_key</font></td>'
-                    "</tr>"
-                    '<tr><td align="center" colspan="1"><font $td_font_attributes>$issue_summary</font></td></tr>'
-                    "</table>>"
-                )
+            label_template = Template(
+                "<<table $table_attributes>"
+                "<tr>"
+                '<td align="center"><font $th_font_attributes>$issue_key</font></td>'
+                '<td align="center"><font $th_font_attributes>$issue_state</font></td>'
+                '<td align="center"><font $th_font_attributes>$issue_assignee</font></td>'
+                "</tr>"
+                '<tr><td align="center" colspan="3"><font $td_font_attributes>$issue_summary</font></td></tr>'
+                "</table>>"
+            )
             node_label = label_template.substitute(
                 table_attributes=table_attributes,
                 th_font_attributes=th_font_attributes,
                 td_font_attributes=td_font_attributes,
                 issue_key=issue.get_key(),
-                issue_state=issue.get_status_name().upper(),
-                issue_assignee=issue.get_assignee_initials(),
+                issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ''),
+                issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
                 issue_summary=summary,
             )
         else:
             summary = summary.replace('"', '\\"')
             summary = summary.replace("\n", "\\n")
-            if "state" in elements_to_include:
-                if "assignee" in elements_to_include and issue.get_assignee() is not None:
-                    label_template = Template(
-                        "$issue_key $issue_state $issue_assignee\\n$issue_summary"
-                    )
-                else:
-                    label_template = Template(
-                        "$issue_key $issue_state\\n$issue_summary"
-                    )
-            else:
-                label_template = Template(
-                    "$issue_key\\n$issue_summary"
-                )
+            label_template = Template(
+                "$issue_key$issue_state$issue_assignee\\n$issue_summary"
+            )
             node_label = label_template.substitute(
                 issue_key=issue.get_key(),
-                issue_state=issue.get_status_name().upper(),
-                issue_assignee=issue.get_assignee_initials(),
+                issue_state=(' ' + issue.get_status_name().upper() if "state" in elements_to_include else ''),
+                issue_assignee=(' ' + issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
                 issue_summary=summary,
             )
         return node_label
