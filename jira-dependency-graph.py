@@ -376,7 +376,7 @@ class GraphConfig:
 
     def get_issue_status_color(self, issue_type_name, state_name):
         workflow_states = self.get_card_states(issue_type_name)
-        if workflow_states is None:
+        if not workflow_states:
             raise StopIteration
 
         fill_color = "white"
@@ -414,15 +414,15 @@ class GraphConfig:
         else:
             return default
 
-    def get_card_states(self, card_type):
+    def get_card_states(self, card_type, category="states"):
         workflow_index = self.get_workflow_index(card_type)
         if workflow_index is None:
-            return None
-        return self.get_workflow_states(workflow_index)
+            return []
+        return self.get_workflow_states(workflow_index, category)
 
     @lru_cache(maxsize=None)
-    def get_workflow_states(self, workflow_index):
-        return self.workflows()[workflow_index]["states"]
+    def get_workflow_states(self, workflow_index, category="states"):
+        return self.workflows()[workflow_index].get(category, [])
 
     @lru_cache(maxsize=None)
     def get_workflow_index(self, card_type):
@@ -1493,8 +1493,11 @@ def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
 
     clusters_to_labels = invert_dict(labels_to_clusters)
 
-    workflow_states = ["open", "ready to plan"] + [
-        snake_case(state) for state in graph_config.get_card_states("story")
+    workflow_states = [
+        snake_case(state) for state in
+        graph_config.get_card_states("story", "pre-states") +
+        graph_config.get_card_states("story") +
+        graph_config.get_card_states("story", "post-states")
     ]
     # subgraph_tree_str = render_issue_subgraph(
     #     subgraph_tree, clusters_to_labels, workflow_states
