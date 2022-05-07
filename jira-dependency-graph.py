@@ -522,26 +522,28 @@ def build_graph_data(
             summary = html.escape(summary)
             summary = summary.replace("\n", "<br/>")
             table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
-            th_font_attributes = 'face="Impact"'
+            th_font_attributes = 'POINT-SIZE="12"'
+            td_attributes = 'align="center" colspan="3" cellspacing="0" cellpadding="0"'
             td_font_attributes = ""
             label_template = Template(
+                # space required in docker version ... otherwise the empty <font|b> tag throws a syntax error (!?)
                 "<<table $table_attributes>"
                 "<tr>"
-                '<td align="center"><font $th_font_attributes>$issue_key</font></td>'
-                '<td align="center"><font $th_font_attributes>$issue_state</font></td>'
-                '<td align="center"><font $th_font_attributes>$issue_assignee</font></td>'
+                '<td align="center"><font $th_font_attributes><b> $issue_key </b></font></td>'
+                '<td align="center"><font $th_font_attributes><b> $issue_state </b></font></td>'
+                '<td align="center"><font $th_font_attributes><b> $issue_assignee </b></font></td>'
                 "</tr>"
-                '<tr><td align="center" colspan="3"><font $td_font_attributes>$issue_summary</font></td></tr>'
+                '<tr><td $td_attributes><font $td_font_attributes> $issue_summary </font></td></tr>'
                 "</table>>"
             )
             node_label = label_template.substitute(
                 table_attributes=table_attributes,
                 th_font_attributes=th_font_attributes,
+                td_attributes=td_attributes,
                 td_font_attributes=td_font_attributes,
                 issue_key=issue.get_key(),
-                # space required in docker version ... otherwise the empty <font> tag throws a syntax error (!?)
-                issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ' '),
-                issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ' '),
+                issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ''),
+                issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
                 issue_summary=summary,
             )
         else:
@@ -764,7 +766,7 @@ def build_graph_data(
             issue_type_nodes = []
             issue_key_prior = None
             for state_idx, state in enumerate(workflow["states"]):
-                issue_key = "{}-00{}".format(issue_type_name, state_idx)
+                issue_key = "{}-00{}".format(issue_type_name.upper(), state_idx)
                 issue_fields = {
                     "summary": "summary",
                     "status": {"name": state, "statusCategory": {"name": "name"}},
