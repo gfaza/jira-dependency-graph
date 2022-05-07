@@ -213,6 +213,8 @@ class JiraSearch(object):
 class JiraIssue:
     __data = None
     __level = None
+    __render_node_summary_method = None
+    __render_node_label_method = None
 
     def __init__(self, data):
         self.__data = data
@@ -303,6 +305,16 @@ class JiraIssue:
 
     def set_level(self, level):
         self.__level = level
+
+    # TODO: rendering methods ... reconsider location
+    def set_render_node_summary_method(self, method):
+        self.__render_node_summary_method = method
+
+    def set_render_node_label_method(self, method):
+        self.__render_node_label_method = method
+
+    def render_node_label(self):
+        return self.__render_node_label_method(self, self.__render_node_summary_method)
 
 
 class GraphConfig:
@@ -486,7 +498,7 @@ def build_graph_data(
     def build_issue_node_attributes(issue):
         node_attributes = {
             "href": jira.get_issue_uri(issue.get_key()),
-            "label": get_node_label(issue),
+            "label": issue.render_node_label(),
             "style": "filled",
         }
 
@@ -507,57 +519,79 @@ def build_graph_data(
             node_attributes["fontcolor"] = font_color
         return node_attributes
 
-    def get_node_label(issue):
-        summary = issue.get_summary()
-        if word_wrap:
-            if len(summary) > MAX_SUMMARY_LENGTH:
-                # split the summary into multiple lines adding a \n to each line
-                summary = textwrap.fill(summary, MAX_SUMMARY_LENGTH)
-        else:
-            # truncate long labels with "...", but only if the three dots are replacing more than two characters
-            # -- otherwise the truncated label would be taking more space than the original.
-            if len(summary) > MAX_SUMMARY_LENGTH + 2:
-                summary = summary[:MAX_SUMMARY_LENGTH] + "..."
+    def choose_node_label_render_method():
         if style_options.get("html_stylize", False):
-            summary = html.escape(summary)
-            summary = summary.replace("\n", "<br/>")
-            table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
-            th_font_attributes = 'POINT-SIZE="12"'
-            td_attributes = 'align="center" colspan="3" cellspacing="0" cellpadding="0"'
-            td_font_attributes = ""
-            label_template = Template(
-                # space required in docker version ... otherwise the empty <font|b> tag throws a syntax error (!?)
-                "<<table $table_attributes>"
-                "<tr>"
-                '<td align="center"><font $th_font_attributes><b> $issue_key </b></font></td>'
-                '<td align="center"><font $th_font_attributes><b> $issue_state </b></font></td>'
-                '<td align="center"><font $th_font_attributes><b> $issue_assignee </b></font></td>'
-                "</tr>"
-                '<tr><td $td_attributes><font $td_font_attributes> $issue_summary </font></td></tr>'
-                "</table>>"
-            )
-            node_label = label_template.substitute(
-                table_attributes=table_attributes,
-                th_font_attributes=th_font_attributes,
-                td_attributes=td_attributes,
-                td_font_attributes=td_font_attributes,
-                issue_key=issue.get_key(),
-                issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ''),
-                issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
-                issue_summary=summary,
-            )
+            chosen_method = render_node_label_html
         else:
-            summary = summary.replace('"', '\\"')
-            summary = summary.replace("\n", "\\n")
-            label_template = Template(
-                "$issue_key$issue_state$issue_assignee\\n$issue_summary"
-            )
-            node_label = label_template.substitute(
-                issue_key=issue.get_key(),
-                issue_state=(' ' + issue.get_status_name().upper() if "state" in elements_to_include else ''),
-                issue_assignee=(' ' + issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
-                issue_summary=summary,
-            )
+            chosen_method = render_node_label_text
+        return chosen_method
+
+    def choose_node_summary_render_method():
+        if word_wrap:
+            chosen_method = render_node_summary_text_wrapped
+        else:
+            chosen_method = render_node_summary_text_truncated
+        return chosen_method
+
+    def render_node_summary_text_truncated(issue):
+        summary = issue.get_summary()
+        # truncate long labels with "...", but only if the three dots are replacing more than two characters
+        # -- otherwise the truncated label would be taking more space than the original.
+        if len(summary) > MAX_SUMMARY_LENGTH + 2:
+            summary = summary[:MAX_SUMMARY_LENGTH] + "..."
+        return summary
+
+    def render_node_summary_text_wrapped(issue):
+        summary = issue.get_summary()
+        if len(summary) > MAX_SUMMARY_LENGTH:
+            # split the summary into multiple lines adding a \n to each line
+            summary = textwrap.fill(summary, MAX_SUMMARY_LENGTH)
+        return summary
+
+    def render_node_label_text(issue, summary_method):
+        summary = summary_method(issue)
+        summary = summary.replace('"', '\\"')
+        summary = summary.replace("\n", "\\n")
+        label_template = Template(
+            "$issue_key$issue_state$issue_assignee\\n$issue_summary"
+        )
+        node_label = label_template.substitute(
+            issue_key=issue.get_key(),
+            issue_state=(' ' + issue.get_status_name().upper() if "state" in elements_to_include else ''),
+            issue_assignee=(' ' + issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
+            issue_summary=summary,
+        )
+        return node_label
+
+    def render_node_label_html(issue, summary_method):
+        summary = summary_method(issue)
+        summary = html.escape(summary)
+        summary = summary.replace("\n", "<br/>")
+        table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
+        th_font_attributes = 'POINT-SIZE="12"'
+        td_attributes = 'align="center" colspan="3" cellspacing="0" cellpadding="0"'
+        td_font_attributes = ""
+        label_template = Template(
+            # space required in docker version ... otherwise the empty <font|b> tag throws a syntax error (!?)
+            "<<table $table_attributes>"
+            "<tr>"
+            '<td align="center"><font $th_font_attributes><b> $issue_key </b></font></td>'
+            '<td align="center"><font $th_font_attributes><b> $issue_state </b></font></td>'
+            '<td align="center"><font $th_font_attributes><b> $issue_assignee </b></font></td>'
+            "</tr>"
+            '<tr><td $td_attributes><font $td_font_attributes> $issue_summary </font></td></tr>'
+            "</table>>"
+        )
+        node_label = label_template.substitute(
+            table_attributes=table_attributes,
+            th_font_attributes=th_font_attributes,
+            td_attributes=td_attributes,
+            td_font_attributes=td_font_attributes,
+            issue_key=issue.get_key(),
+            issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ''),
+            issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
+            issue_summary=summary,
+        )
         return node_label
 
     def process_link(issue, link):
@@ -632,6 +666,9 @@ def build_graph_data(
 
     sanity_check_issue_cache = False
 
+    jira_node_summary_method = choose_node_summary_render_method()
+    jira_node_label_method = choose_node_label_render_method()
+
     def walk(issue_key, graph, remaining_depth_limit=None):
         """issue is the JSON representation of the issue"""
         log(
@@ -643,6 +680,8 @@ def build_graph_data(
         issue_cache_sanity_check(issue_key)
         issue = jira.issue_cache_get(issue_key, or_set=True)
         if issue_key not in seen:
+            issue.set_render_node_summary_method(jira_node_summary_method)
+            issue.set_render_node_label_method(jira_node_label_method)
             seen.append(issue_key)
 
         issue_status_name = issue.get_status_name()
