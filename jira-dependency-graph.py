@@ -213,8 +213,6 @@ class JiraSearch(object):
 class JiraIssue:
     __data = None
     __level = None
-    __render_node_summary_method = None
-    __render_node_label_method = None
 
     def __init__(self, data):
         self.__data = data
@@ -306,15 +304,22 @@ class JiraIssue:
     def set_level(self, level):
         self.__level = level
 
-    # TODO: rendering methods ... reconsider location
+class GraphRenderer:
+    __render_node_summary_method = None
+    __render_node_label_method = None
+    __elements_to_include = []
+
     def set_render_node_summary_method(self, method):
         self.__render_node_summary_method = method
 
     def set_render_node_label_method(self, method):
         self.__render_node_label_method = method
 
-    def render_node_label(self):
-        return self.__render_node_label_method(self, self.__render_node_summary_method)
+    def set_elements_to_include(self, elements_to_include):
+        self.__elements_to_include = elements_to_include
+
+    def render_node_label(self, issue):
+        return self.__render_node_label_method(issue, self.__render_node_summary_method, self.__elements_to_include)
 
 
 class GraphConfig:
@@ -475,19 +480,14 @@ def build_graph_data(
         ignore_epic,
         ignore_subtasks,
         traverse,
-        word_wrap,
         search_depth_limit,
         elements_to_include,
-        style_options,
         graph_config,
-        card_meta,
+        graph_renderer,
 ):
     """Given a starting image key and the issue-fetching function build up the GraphViz data representing relationships
     between issues. This will consider both subtasks and issue links.
     """
-
-    card_epics = card_meta["card_epics"]
-    card_supertasks = card_meta["card_supertasks"]
 
     def create_node_text(issue, islink=True):
         if islink:
@@ -498,11 +498,11 @@ def build_graph_data(
     def build_issue_node_attributes(issue):
         node_attributes = {
             "href": jira.get_issue_uri(issue.get_key()),
-            "label": issue.render_node_label(),
+            "label": graph_renderer.render_node_label(issue),
             "style": "filled",
         }
 
-        # issue-type-specific, node attributes
+        # issue-type specific, node attributes
         node_options, edge_options = graph_config.get_node_options(
             issue.get_issuetype_name().lower()
         )
@@ -515,84 +515,9 @@ def build_graph_data(
             issue.get_statuscategory_name(),
         )
         node_attributes["fillcolor"] = fill_color
-        if font_color is not None:
+        if font_color:
             node_attributes["fontcolor"] = font_color
         return node_attributes
-
-    def choose_node_label_render_method():
-        if style_options.get("html_stylize", False):
-            chosen_method = render_node_label_html
-        else:
-            chosen_method = render_node_label_text
-        return chosen_method
-
-    def choose_node_summary_render_method():
-        if word_wrap:
-            chosen_method = render_node_summary_text_wrapped
-        else:
-            chosen_method = render_node_summary_text_truncated
-        return chosen_method
-
-    def render_node_summary_text_truncated(issue):
-        summary = issue.get_summary()
-        # truncate long labels with "...", but only if the three dots are replacing more than two characters
-        # -- otherwise the truncated label would be taking more space than the original.
-        if len(summary) > MAX_SUMMARY_LENGTH + 2:
-            summary = summary[:MAX_SUMMARY_LENGTH] + "..."
-        return summary
-
-    def render_node_summary_text_wrapped(issue):
-        summary = issue.get_summary()
-        if len(summary) > MAX_SUMMARY_LENGTH:
-            # split the summary into multiple lines adding a \n to each line
-            summary = textwrap.fill(summary, MAX_SUMMARY_LENGTH)
-        return summary
-
-    def render_node_label_text(issue, summary_method):
-        summary = summary_method(issue)
-        summary = summary.replace('"', '\\"')
-        summary = summary.replace("\n", "\\n")
-        label_template = Template(
-            "$issue_key$issue_state$issue_assignee\\n$issue_summary"
-        )
-        node_label = label_template.substitute(
-            issue_key=issue.get_key(),
-            issue_state=(' ' + issue.get_status_name().upper() if "state" in elements_to_include else ''),
-            issue_assignee=(' ' + issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
-            issue_summary=summary,
-        )
-        return node_label
-
-    def render_node_label_html(issue, summary_method):
-        summary = summary_method(issue)
-        summary = html.escape(summary)
-        summary = summary.replace("\n", "<br/>")
-        table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
-        th_font_attributes = 'POINT-SIZE="12"'
-        td_attributes = 'align="center" colspan="3" cellspacing="0" cellpadding="0"'
-        td_font_attributes = ""
-        label_template = Template(
-            # space required in docker version ... otherwise the empty <font|b> tag throws a syntax error (!?)
-            "<<table $table_attributes>"
-            "<tr>"
-            '<td align="center"><font $th_font_attributes><b> $issue_key </b></font></td>'
-            '<td align="center"><font $th_font_attributes><b> $issue_state </b></font></td>'
-            '<td align="center"><font $th_font_attributes><b> $issue_assignee </b></font></td>'
-            "</tr>"
-            '<tr><td $td_attributes><font $td_font_attributes> $issue_summary </font></td></tr>'
-            "</table>>"
-        )
-        node_label = label_template.substitute(
-            table_attributes=table_attributes,
-            th_font_attributes=th_font_attributes,
-            td_attributes=td_attributes,
-            td_font_attributes=td_font_attributes,
-            issue_key=issue.get_key(),
-            issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ''),
-            issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
-            issue_summary=summary,
-        )
-        return node_label
 
     def process_link(issue, link):
         issue_key = issue.get_key()
@@ -636,20 +561,21 @@ def build_graph_data(
         arrow = " => " if direction == "outward" else " <= "
         log(issue_key + arrow + link_type + arrow + linked_issue_key)
 
-        edge_options = {"label": link_type}
-        if link_type in ["blocks", "is blocking", "is blocked by"]:
-            edge_options.update(graph_config.get_edge_options("block"))
-            if issue.get_statuscategory_name().upper() == "DONE":
-                edge_options.update({"color": "black"})
-
         if direction not in show_directions:
             edge = None
         else:
             edge_nodes = [create_node_key(issue_key), create_node_key(linked_issue_key)]
+            edge_options = {"label": link_type}
 
-            # orient blockers as dependencies (away from graph root)
             if link_type in ["blocks", "is blocking", "is blocked by"]:
-                edge_options["dir"] = "back"
+                # apply options from yaml
+                edge_options.update(graph_config.get_edge_options("block"))
+
+                # color black if blocker is complete
+                if issue.get_statuscategory_name().upper() == "DONE":
+                    edge_options.update({"color": "black"})
+
+                # orient blockers as dependencies (away from graph root)
                 edge_nodes.reverse()
 
             # orient related as same rank
@@ -666,9 +592,6 @@ def build_graph_data(
 
     sanity_check_issue_cache = False
 
-    jira_node_summary_method = choose_node_summary_render_method()
-    jira_node_label_method = choose_node_label_render_method()
-
     def walk(issue_key, graph, remaining_depth_limit=None):
         """issue is the JSON representation of the issue"""
         log(
@@ -680,8 +603,6 @@ def build_graph_data(
         issue_cache_sanity_check(issue_key)
         issue = jira.issue_cache_get(issue_key, or_set=True)
         if issue_key not in seen:
-            issue.set_render_node_summary_method(jira_node_summary_method)
-            issue.set_render_node_label_method(jira_node_label_method)
             seen.append(issue_key)
 
         issue_status_name = issue.get_status_name()
@@ -713,6 +634,7 @@ def build_graph_data(
         children = []
 
         if not ignore_subtasks:
+            # Epic children
             if issue.get_issuetype_name() == "Epic" and not ignore_epic:
                 if ignore_closed:
                     issues = jira.query(
@@ -732,30 +654,29 @@ def build_graph_data(
 
                     graph.append(edge)
                     children.append(subtask_key)
-                    card_epics[subtask_key] = issue_key
 
                     # let's avoid re-querying this when we iterate over children, since we've already got it here
                     issue_cache_sanity_check(subtask)
                     if subtask_key not in jira.get_issue_cache():
                         jira.issue_cache_set(subtask)
 
-            if not ignore_subtasks:
-                for subtask in issue.get_subtasks():
-                    subtask_key = JiraIssue.get_key_from(subtask)
-                    if ignore_closed and (
-                            JiraIssue.get_status_name_from(subtask) in "Closed"
-                    ):
-                        log("Skipping Subtask " + subtask_key + " - it is Closed")
-                        continue
-                    log(issue_key + " => has subtask => " + subtask_key)
-                    edge = create_edge_text(
-                        create_node_key(issue_key),
-                        create_node_key(subtask_key),
-                        graph_config.get_edge_options("subtask"),
-                    )
-                    graph.append(edge)
-                    children.append(subtask_key)
-                    card_supertasks[subtask_key] = issue_key
+            # Subtasks
+            for subtask in issue.get_subtasks():
+                subtask_key = JiraIssue.get_key_from(subtask)
+                if ignore_closed and (
+                        JiraIssue.get_status_name_from(subtask) in "Closed"
+                ):
+                    log("Skipping Subtask " + subtask_key + " - it is Closed")
+                    continue
+                log(issue_key + " => has subtask => " + subtask_key)
+                edge = create_edge_text(
+                    create_node_key(issue_key),
+                    create_node_key(subtask_key),
+                    graph_config.get_edge_options("subtask"),
+                )
+                graph.append(edge)
+                children.append(subtask_key)
+
         for other_link in issue.get_issuelinks():
             result = process_link(issue, other_link)
             if result is not None:
@@ -764,8 +685,8 @@ def build_graph_data(
                 children.append(linked_issue_key)
                 if edge is not None:
                     graph.append(edge)
+
         # now construct graph data for all subtasks and links of this issue
-        # for child_key in (x for x in children if x not in seen and x not in issue_excludes):
         for child_key in (x for x in children if x not in issue_excludes):
             seen_child = jira.issue_cache_get(child_key)
             if (
@@ -1190,12 +1111,17 @@ def main():
 
     graph = []
     seen = []
-    card_meta = {
-        "card_epics": {},
-        "card_supertasks": {},
-    }
 
     walk_depth_limit = None if options.depth_limit is None else options.depth_limit + 1
+
+    graph_renderer = GraphRenderer()
+    graph_renderer.set_elements_to_include(elements_to_include)
+    graph_renderer.set_render_node_summary_method(
+        choose_node_summary_render_method(options.word_wrap)
+    )
+    graph_renderer.set_render_node_label_method(
+        choose_node_label_render_method(style_options.get("html_stylize", False))
+    )
 
     # for issue in (x for x in options.issues if x not in seen and x not in options.issue_excludes):
     for issue in (x for x in options.issues if x not in options.issue_excludes):
@@ -1211,12 +1137,10 @@ def main():
             options.ignore_epic,
             options.ignore_subtasks,
             options.traverse,
-            options.word_wrap,
             walk_depth_limit,
             elements_to_include,
-            style_options,
             graph_config,
-            card_meta,
+            graph_renderer,
         )
         graph = graph + g
         seen = seen + s
@@ -1226,12 +1150,6 @@ def main():
     log("Dumping retro-testing fuel ...")
     log(f"jira_issue_cache = {jira.get_issue_cache()}")
     log(f"graph = {graph}")
-
-    card_epics = card_meta["card_epics"]
-    card_supertasks = card_meta["card_supertasks"]
-
-    log(f"card_epics = {card_epics}")
-    log(f"card_supertasks = {card_supertasks}")
 
     log(f"graph_config = {graph_config}")
     log(f"elements_to_include = {elements_to_include}")
@@ -1356,9 +1274,8 @@ def main():
             label_edge_attributes = label_edge_options.copy()
 
             if label in labels_to_hide:
-                label_node_attributes["style"] = label_edge_attributes[
-                    "style"
-                ] = "invis"
+                label_node_attributes["style"] = label_edge_attributes["style"] = "invis"
+                label_node_attributes["label"] = "."
 
             label_node_text = graphviz_node_string(label, label_node_attributes)
             label_tree.append(label_node_text)
@@ -1376,8 +1293,6 @@ def main():
     digraph = []
 
     if label_tree:
-        # digraph = digraph + ['\n\n// Labels'] + sorted(set(label_tree), key=lambda s: s.lower())
-        # digraph = digraph + ['\n\n// Labels'] + list(set(label_tree))
         digraph = digraph + ["\n\n// Labels"] + sort_labels(set(label_tree))
 
     if options.employ_subgraphs:
@@ -1451,6 +1366,82 @@ def main():
             # update the issue description with the updated png
             update_issue_graph(jira, options.issue_update, file_attachment_path)
 
+# renderer stuffs
+
+def choose_node_label_render_method(html_stylize):
+    if html_stylize:
+        chosen_method = render_node_label_html
+    else:
+        chosen_method = render_node_label_text
+    return chosen_method
+
+def choose_node_summary_render_method(word_wrap_arg):
+    if word_wrap_arg:
+        chosen_method = render_node_summary_text_wrapped
+    else:
+        chosen_method = render_node_summary_text_truncated
+    return chosen_method
+
+def render_node_summary_text_truncated(issue):
+    summary = issue.get_summary()
+    # truncate long labels with "...", but only if the three dots are replacing more than two characters
+    # -- otherwise the truncated label would be taking more space than the original.
+    if len(summary) > MAX_SUMMARY_LENGTH + 2:
+        summary = summary[:MAX_SUMMARY_LENGTH] + "..."
+    return summary
+
+def render_node_summary_text_wrapped(issue):
+    summary = issue.get_summary()
+    if len(summary) > MAX_SUMMARY_LENGTH:
+        # split the summary into multiple lines adding a \n to each line
+        summary = textwrap.fill(summary, MAX_SUMMARY_LENGTH)
+    return summary
+
+def render_node_label_text(issue, summary_method, elements_to_include):
+    summary = summary_method(issue)
+    summary = summary.replace('"', '\\"')
+    summary = summary.replace("\n", "\\n")
+    label_template = Template(
+        "$issue_key$issue_state$issue_assignee\\n$issue_summary"
+    )
+    node_label = label_template.substitute(
+        issue_key=issue.get_key(),
+        issue_state=(' ' + issue.get_status_name().upper() if "state" in elements_to_include else ''),
+        issue_assignee=(' ' + issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
+        issue_summary=summary,
+    )
+    return node_label
+
+def render_node_label_html(issue, summary_method, elements_to_include):
+    summary = summary_method(issue)
+    summary = html.escape(summary)
+    summary = summary.replace("\n", "<br/>")
+    table_attributes = 'border="0" cellspacing="2" cellpadding="3"'
+    th_font_attributes = 'POINT-SIZE="12"'
+    td_attributes = 'align="center" colspan="3" cellspacing="0" cellpadding="0"'
+    td_font_attributes = ""
+    label_template = Template(
+        # space required in docker version ... otherwise the empty <font|b> tag throws a syntax error (!?)
+        "<<table $table_attributes>"
+        "<tr>"
+        '<td align="center"><font $th_font_attributes><b> $issue_key </b></font></td>'
+        '<td align="center"><font $th_font_attributes><b> $issue_state </b></font></td>'
+        '<td align="center"><font $th_font_attributes><b> $issue_assignee </b></font></td>'
+        "</tr>"
+        '<tr><td $td_attributes><font $td_font_attributes> $issue_summary </font></td></tr>'
+        "</table>>"
+    )
+    node_label = label_template.substitute(
+        table_attributes=table_attributes,
+        th_font_attributes=th_font_attributes,
+        td_attributes=td_attributes,
+        td_font_attributes=td_font_attributes,
+        issue_key=issue.get_key(),
+        issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ''),
+        issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
+        issue_summary=summary,
+    )
+    return node_label
 
 def redact_namespace(config, sensitive_keys=["user", "password"]):
     for key in sensitive_keys:
@@ -1510,9 +1501,7 @@ def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
         graph_config.get_card_states("story") +
         graph_config.get_card_states("story", "post-states")
     ]
-    # subgraph_tree_str = render_issue_subgraph(
-    #     subgraph_tree, clusters_to_labels, workflow_states
-    # )
+
     subgraph_trees = render_issue_subgraph(
         subgraph_tree, clusters_to_labels, workflow_states
     )
