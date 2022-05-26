@@ -279,7 +279,7 @@ class JiraIssue:
         if self.get_assignee():
             return self.get_assignee()["emailAddress"][:2].upper()
         else:
-            return ''
+            return ""
 
     def get_assignee_name(self):
         return self.get_assignee()["displayName"]
@@ -304,6 +304,7 @@ class JiraIssue:
     def set_level(self, level):
         self.__level = level
 
+
 class GraphRenderer:
     __render_node_summary_method = None
     __render_node_label_method = None
@@ -319,7 +320,9 @@ class GraphRenderer:
         self.__elements_to_include = elements_to_include
 
     def render_node_label(self, issue):
-        return self.__render_node_label_method(issue, self.__render_node_summary_method, self.__elements_to_include)
+        return self.__render_node_label_method(
+            issue, self.__render_node_summary_method, self.__elements_to_include
+        )
 
 
 class GraphConfig:
@@ -469,21 +472,20 @@ class GraphConfig:
 
 
 def build_graph_data(
-        start_issue_key,
-        jira,
-        excludes,
-        show_directions,
-        directions,
-        includes,
-        issue_excludes,
-        ignore_closed,
-        ignore_epic,
-        ignore_subtasks,
-        traverse,
-        search_depth_limit,
-        elements_to_include,
-        graph_config,
-        graph_renderer,
+    start_issue_key,
+    jira,
+    excludes,
+    show_directions,
+    directions,
+    includes,
+    issue_excludes,
+    ignore_closed,
+    ignore_epic,
+    ignore_subtasks,
+    traverse,
+    search_depth_limit,
+    graph_config,
+    graph_renderer,
 ):
     """Given a starting image key and the issue-fetching function build up the GraphViz data representing relationships
     between issues. This will consider both subtasks and issue links.
@@ -541,10 +543,14 @@ def build_graph_data(
         link_type = link["type"][direction]
 
         if ignore_closed:
-            if ("inwardIssue" in link) and (JiraIssue.get_inward_issue_status_name(link) in "Closed"):
+            if ("inwardIssue" in link) and (
+                JiraIssue.get_inward_issue_status_name(link) in "Closed"
+            ):
                 log("Skipping " + linked_issue_key + " - linked key is Closed")
                 return
-            if ("outwardIssue" in link) and (JiraIssue.get_outward_issue_status_name(link) in "Closed"):
+            if ("outwardIssue" in link) and (
+                JiraIssue.get_outward_issue_status_name(link) in "Closed"
+            ):
                 log("Skipping " + linked_issue_key + " - linked key is Closed")
                 return
 
@@ -563,7 +569,7 @@ def build_graph_data(
             edge_nodes = [create_node_key(issue_key), create_node_key(linked_issue_key)]
             edge_options = {"label": link_type}
 
-            if link["type"]["name"] == 'Blocks':
+            if link["type"]["name"] == "Blocks":
                 # apply options from yaml
                 edge_options.update(graph_config.get_edge_options("block"))
 
@@ -576,7 +582,7 @@ def build_graph_data(
 
             # orient "relates, duplicates, clones" edges as same rank
             # if link_type in ["relates to"]:
-            elif link["type"]["name"] in ['Relates', 'Duplicate', 'Cloners']:
+            elif link["type"]["name"] in ["Relates", "Duplicate", "Cloners"]:
                 edge_options["constraint"] = "false"
                 edge_options["dir"] = "none"
 
@@ -664,7 +670,7 @@ def build_graph_data(
             for subtask in issue.get_subtasks():
                 subtask_key = JiraIssue.get_key_from(subtask)
                 if ignore_closed and (
-                        JiraIssue.get_status_name_from(subtask) in "Closed"
+                    JiraIssue.get_status_name_from(subtask) in "Closed"
                 ):
                     log("Skipping Subtask " + subtask_key + " - it is Closed")
                     continue
@@ -690,9 +696,9 @@ def build_graph_data(
         for child_key in (x for x in children if x not in issue_excludes):
             seen_child = jira.issue_cache_get(child_key)
             if (
-                    (not seen_child)
-                    or (seen_child.get_level() is None)
-                    or (seen_child.get_level() > current_depth + 1)
+                (not seen_child)
+                or (seen_child.get_level() is None)
+                or (seen_child.get_level() > current_depth + 1)
             ):
                 walk(child_key, graph, remaining_depth_limit)
         return graph
@@ -778,7 +784,7 @@ def update_issue_graph(jira, issue_key, file_attachment_path):
             )
         else:
             description = (
-                    description + "\n\nh3.Jira Dependency Graph\n\n!" + image_tag + "!\n"
+                description + "\n\nh3.Jira Dependency Graph\n\n!" + image_tag + "!\n"
             )
 
         # update the card's description
@@ -1138,7 +1144,6 @@ def main():
             options.ignore_subtasks,
             options.traverse,
             walk_depth_limit,
-            elements_to_include,
             graph_config,
             graph_renderer,
         )
@@ -1162,13 +1167,14 @@ def main():
             for key, issue in jira.get_issue_cache().items()
             if issue.get_level() is not None
         }
-        log(f'card_levels: {card_levels}')
+        log(f"card_levels: {card_levels}")
         cards_beyond_depth_limit = [
             # k for k, depth in card_levels.items() if depth > options.depth_limit
-            k for k, issue in jira.get_issue_cache().items()
+            k
+            for k, issue in jira.get_issue_cache().items()
             if issue.get_level() is None or issue.get_level() > options.depth_limit
         ]
-        log(f'cards_beyond_depth_limit: {cards_beyond_depth_limit}')
+        log(f"cards_beyond_depth_limit: {cards_beyond_depth_limit}")
         graph = [
             line
             for line in graph
@@ -1228,7 +1234,7 @@ def main():
             issue_key: issue.get_labels()
             for issue_key, issue in jira.get_issue_cache().items()
             if issue.get_level() is not None
-               and issue_key not in cards_beyond_depth_limit
+            and issue_key not in cards_beyond_depth_limit
         }
         labels_to_cards = invert_dict(cards_to_labels)
 
@@ -1274,7 +1280,9 @@ def main():
             label_edge_attributes = label_edge_options.copy()
 
             if label in labels_to_hide:
-                label_node_attributes["style"] = label_edge_attributes["style"] = "invis"
+                label_node_attributes["style"] = label_edge_attributes[
+                    "style"
+                ] = "invis"
                 label_node_attributes["label"] = "."
 
             label_node_text = graphviz_node_string(label, label_node_attributes)
@@ -1307,7 +1315,8 @@ def main():
 
         log(f"\n\nfiltered_graph: {filtered_graph}\n\n")
         jira_issue_cache_for_graph = {
-            k: {'card_level': obj.get_level()} for k, obj in jira.get_issue_cache().items()
+            k: {"card_level": obj.get_level()}
+            for k, obj in jira.get_issue_cache().items()
         }
         log(f"\n\njira_issue_cache_for_graph: {jira_issue_cache_for_graph}\n\n")
 
@@ -1347,8 +1356,8 @@ def main():
                 issues_str = "graph"
             timestamp_str = (
                 datetime.now()
-                    .isoformat(timespec="seconds")
-                    .translate({ord(c): None for c in ":-"})
+                .isoformat(timespec="seconds")
+                .translate({ord(c): None for c in ":-"})
             )
             image_filename = issues_str + ".graph." + timestamp_str
         image_filename = "./out/" + image_filename
@@ -1366,7 +1375,9 @@ def main():
             # update the issue description with the updated png
             update_issue_graph(jira, options.issue_update, file_attachment_path)
 
+
 # renderer stuffs
+
 
 def choose_node_label_render_method(html_stylize):
     if html_stylize:
@@ -1375,12 +1386,14 @@ def choose_node_label_render_method(html_stylize):
         chosen_method = render_node_label_text
     return chosen_method
 
+
 def choose_node_summary_render_method(word_wrap_arg):
     if word_wrap_arg:
         chosen_method = render_node_summary_text_wrapped
     else:
         chosen_method = render_node_summary_text_truncated
     return chosen_method
+
 
 def render_node_summary_text_truncated(issue):
     summary = issue.get_summary()
@@ -1390,6 +1403,7 @@ def render_node_summary_text_truncated(issue):
         summary = summary[:MAX_SUMMARY_LENGTH] + "..."
     return summary
 
+
 def render_node_summary_text_wrapped(issue):
     summary = issue.get_summary()
     if len(summary) > MAX_SUMMARY_LENGTH:
@@ -1397,20 +1411,28 @@ def render_node_summary_text_wrapped(issue):
         summary = textwrap.fill(summary, MAX_SUMMARY_LENGTH)
     return summary
 
+
 def render_node_label_text(issue, summary_method, elements_to_include):
     summary = summary_method(issue)
     summary = summary.replace('"', '\\"')
     summary = summary.replace("\n", "\\n")
-    label_template = Template(
-        "$issue_key$issue_state$issue_assignee\\n$issue_summary"
-    )
+    label_template = Template("$issue_key$issue_state$issue_assignee\\n$issue_summary")
     node_label = label_template.substitute(
         issue_key=issue.get_key(),
-        issue_state=(' ' + issue.get_status_name().upper() if "state" in elements_to_include else ''),
-        issue_assignee=(' ' + issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
+        issue_state=(
+            " " + issue.get_status_name().upper()
+            if "state" in elements_to_include
+            else ""
+        ),
+        issue_assignee=(
+            " " + issue.get_assignee_initials()
+            if "assignee" in elements_to_include
+            else ""
+        ),
         issue_summary=summary,
     )
     return node_label
+
 
 def render_node_label_html(issue, summary_method, elements_to_include):
     summary = summary_method(issue)
@@ -1422,14 +1444,14 @@ def render_node_label_html(issue, summary_method, elements_to_include):
     td_font_attributes = ""
     label_template = Template(
         # space required in docker version ... otherwise the empty <font|b> tag throws a syntax error (!?)
-        "<<table $table_attributes>"
-        "<tr>"
+        '<<table $table_attributes>'
+        '<tr>'
         '<td align="center"><font $th_font_attributes><b> $issue_key </b></font></td>'
         '<td align="center"><font $th_font_attributes><b> $issue_state </b></font></td>'
         '<td align="center"><font $th_font_attributes><b> $issue_assignee </b></font></td>'
-        "</tr>"
+        '</tr>'
         '<tr><td $td_attributes><font $td_font_attributes> $issue_summary </font></td></tr>'
-        "</table>>"
+        '</table>>'
     )
     node_label = label_template.substitute(
         table_attributes=table_attributes,
@@ -1437,11 +1459,16 @@ def render_node_label_html(issue, summary_method, elements_to_include):
         td_attributes=td_attributes,
         td_font_attributes=td_font_attributes,
         issue_key=issue.get_key(),
-        issue_state=(issue.get_status_name().upper() if "state" in elements_to_include else ''),
-        issue_assignee=(issue.get_assignee_initials() if "assignee" in elements_to_include else ''),
+        issue_state=(
+            issue.get_status_name().upper() if "state" in elements_to_include else ""
+        ),
+        issue_assignee=(
+            issue.get_assignee_initials() if "assignee" in elements_to_include else ""
+        ),
         issue_summary=summary,
     )
     return node_label
+
 
 def redact_namespace(config, sensitive_keys=["user", "password"]):
     for key in sensitive_keys:
@@ -1461,7 +1488,7 @@ def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
         issue_key: JiraIssue.get_key_from(issue.get_parent())
         for issue_key, issue in issue_cache.items()
         if JiraIssue.get_issuetype_name_from(issue.get_parent())
-           and JiraIssue.get_key_from(issue.get_parent()) in issue_cache
+        and JiraIssue.get_key_from(issue.get_parent()) in issue_cache
     }
 
     issues_to_graph = {
@@ -1479,8 +1506,8 @@ def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
             if not node_issue_card_state in subgraph_tree[node_issue_parent].keys():
                 subgraph_tree[node_issue_parent][node_issue_card_state] = {}
             if (
-                    not issue_key
-                        in subgraph_tree[node_issue_parent][node_issue_card_state].keys()
+                not issue_key
+                in subgraph_tree[node_issue_parent][node_issue_card_state].keys()
             ):
                 subgraph_tree[node_issue_parent][node_issue_card_state][issue_key] = {}
 
@@ -1496,16 +1523,18 @@ def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
     clusters_to_labels = invert_dict(labels_to_clusters)
 
     workflow_states = [
-        snake_case(state) for state in
-        graph_config.get_card_states("story", "pre-states") +
-        graph_config.get_card_states("story") +
-        graph_config.get_card_states("story", "post-states")
+        snake_case(state)
+        for state in graph_config.get_card_states("story", "pre-states")
+        + graph_config.get_card_states("story")
+        + graph_config.get_card_states("story", "post-states")
     ]
 
     subgraph_trees = render_issue_subgraph(
         subgraph_tree, clusters_to_labels, workflow_states
     )
-    subgraph_trees_str = '\n'.join([subgraph_tree.render() for subgraph_tree in subgraph_trees.values()])
+    subgraph_trees_str = "\n".join(
+        [subgraph_tree.render() for subgraph_tree in subgraph_trees.values()]
+    )
     subgraph_trees_str = re.sub(r";\s+;", ";", subgraph_trees_str)
     log(f"(\n# subgraph_tree\n{subgraph_tree},")
     log(f"# clusters_to_labels\n{clusters_to_labels},")
