@@ -541,14 +541,10 @@ def build_graph_data(
         link_type = link["type"][direction]
 
         if ignore_closed:
-            if ("inwardIssue" in link) and (
-                    JiraIssue.get_inward_issue_status_name(link) in "Closed"
-            ):
+            if ("inwardIssue" in link) and (JiraIssue.get_inward_issue_status_name(link) in "Closed"):
                 log("Skipping " + linked_issue_key + " - linked key is Closed")
                 return
-            if ("outwardIssue" in link) and (
-                    JiraIssue.get_outward_issue_status_name(link) in "Closed"
-            ):
+            if ("outwardIssue" in link) and (JiraIssue.get_outward_issue_status_name(link) in "Closed"):
                 log("Skipping " + linked_issue_key + " - linked key is Closed")
                 return
 
@@ -567,7 +563,7 @@ def build_graph_data(
             edge_nodes = [create_node_key(issue_key), create_node_key(linked_issue_key)]
             edge_options = {"label": link_type}
 
-            if link_type in ["blocks", "is blocking", "is blocked by"]:
+            if link["type"]["name"] == 'Blocks':
                 # apply options from yaml
                 edge_options.update(graph_config.get_edge_options("block"))
 
@@ -578,10 +574,14 @@ def build_graph_data(
                 # orient blockers as dependencies (away from graph root)
                 edge_nodes.reverse()
 
-            # orient related as same rank
-            if link_type in ["relates to"]:
+            # orient "relates, duplicates, clones" edges as same rank
+            # if link_type in ["relates to"]:
+            elif link["type"]["name"] in ['Relates', 'Duplicate', 'Cloners']:
                 edge_options["constraint"] = "false"
                 edge_options["dir"] = "none"
+
+            else:
+                log(f'SURPRISE: unknown link type: {link["type"]}')
 
             edge = create_edge_text(edge_nodes[0], edge_nodes[1], edge_options)
 
