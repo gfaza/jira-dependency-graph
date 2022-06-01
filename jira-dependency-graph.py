@@ -213,6 +213,7 @@ class JiraSearch(object):
 class JiraIssue:
     __data = None
     __level = None
+    __excluded = False
 
     def __init__(self, data):
         self.__data = data
@@ -303,6 +304,12 @@ class JiraIssue:
 
     def set_level(self, level):
         self.__level = level
+
+    def get_excluded(self):
+        return self.__excluded
+
+    def set_excluded(self, exclude):
+        self.__excluded = exclude
 
 
 class GraphRenderer:
@@ -598,7 +605,7 @@ def build_graph_data(
 
     sanity_check_issue_cache = False
 
-    def walk(issue_key, graph, remaining_depth_limit=None):
+    def walk(issue_key, graph, current_depth, remaining_depth_limit=None):
         """issue is the JSON representation of the issue"""
         log(
             "Walking: {}, remaining_depth_limit={}".format(
@@ -611,31 +618,39 @@ def build_graph_data(
         if issue_key not in seen:
             seen.append(issue_key)
 
-        issue_status_name = issue.get_status_name()
-
-        if ignore_closed and (issue_status_name in "Closed"):
+        if ignore_closed and (issue.get_status_name() in "Closed"):
             log("Skipping " + issue_key + " - it is Closed")
             return graph
 
         if not traverse and ((project_prefix + "-") not in issue_key):
             log("Skipping " + issue_key + " - not traversing to a different project")
             return graph
+
         graph.append(create_node_text(issue, islink=False))
 
-        current_depth = -1
+        # current_depth = 0
         if remaining_depth_limit is not None:
             # update issue depth to the minimum depth observed
-            current_depth = search_depth_limit - remaining_depth_limit
-            if issue.get_level() is not None:
-                current_depth = min(current_depth, issue.get_level())
+            current_depth = min(current_depth, search_depth_limit - remaining_depth_limit)
 
+        if issue.get_level() is not None:
+            current_depth = min(current_depth, issue.get_level())
+
+        if current_depth != issue.get_level():
+            # log(
+            #     "Setting level: {}, current_depth={}, search_depth_limit={}, remaining_depth_limit={}".format(
+            #         issue_key, current_depth, search_depth_limit, remaining_depth_limit
+            #     )
+            # )
+            issue.set_level(current_depth)
+
+        if remaining_depth_limit is not None:
             # decrease the remaining depth limit, and stop recursion if we've reached that limit
             remaining_depth_limit = search_depth_limit - current_depth
-            remaining_depth_limit -= 1
+            # search one additional link away, in case it comes back in a different iteration
             if remaining_depth_limit < 0:
                 return graph
-
-        issue.set_level(current_depth)
+            remaining_depth_limit -= 1
 
         children = []
 
@@ -700,7 +715,7 @@ def build_graph_data(
                 or (seen_child.get_level() is None)
                 or (seen_child.get_level() > current_depth + 1)
             ):
-                walk(child_key, graph, remaining_depth_limit)
+                walk(child_key, graph, current_depth + 1, remaining_depth_limit)
         return graph
 
     def issue_cache_sanity_check(issue_key_or_issue):
@@ -755,7 +770,7 @@ def build_graph_data(
         return color_demo([]), seen
 
     project_prefix = start_issue_key.split("-", 1)[0]
-    return walk(start_issue_key, [], search_depth_limit), seen
+    return walk(start_issue_key, [], 0, search_depth_limit), seen
 
 
 def update_issue_graph(jira, issue_key, file_attachment_path):
@@ -1118,7 +1133,7 @@ def main():
     graph = []
     seen = []
 
-    walk_depth_limit = None if options.depth_limit is None else options.depth_limit + 1
+    walk_depth_limit = None if options.depth_limit is None else options.depth_limit
 
     graph_renderer = GraphRenderer()
     graph_renderer.set_elements_to_include(elements_to_include)
@@ -1168,12 +1183,15 @@ def main():
             if issue.get_level() is not None
         }
         log(f"card_levels: {card_levels}")
-        cards_beyond_depth_limit = [
-            # k for k, depth in card_levels.items() if depth > options.depth_limit
-            k
+        issues_beyond_depth_limit = {
+            k: issue
             for k, issue in jira.get_issue_cache().items()
             if issue.get_level() is None or issue.get_level() > options.depth_limit
-        ]
+        }
+        for k, issue in issues_beyond_depth_limit.items():
+            cards_beyond_depth_limit.append(k)
+            issue.set_excluded(True)
+
         log(f"cards_beyond_depth_limit: {cards_beyond_depth_limit}")
         graph = [
             line
@@ -1304,8 +1322,13 @@ def main():
         digraph = digraph + ["\n\n// Labels"] + sort_labels(set(label_tree))
 
     if options.employ_subgraphs:
+        issue_cache = {
+            issue_key: issue
+            for issue_key, issue in jira.get_issue_cache().items()
+            if issue.get_excluded() == False
+        }
         subgraph_tree = generate_subgraphs(
-            labels_to_cards, graph_config, jira.get_issue_cache()
+            labels_to_cards, graph_config, issue_cache
         )
         digraph = digraph + ["\n\n// Subgraphs"] + subgraph_tree
 
