@@ -48,7 +48,7 @@ from helper_methods import (
     render_issue_subgraph,
 )
 
-MAX_SUMMARY_LENGTH = 30
+MAX_SUMMARY_LENGTH = 28
 MAX_QUERY_RESULTS = 300
 
 
@@ -283,7 +283,10 @@ class JiraIssue:
             return ""
 
     def get_assignee_name(self):
-        return self.get_assignee()["displayName"]
+        if self.get_assignee():
+            return self.get_assignee()["displayName"]
+        else:
+            return ""
 
     def get_summary(self):
         return self.__data["fields"]["summary"]
@@ -1405,6 +1408,7 @@ def main():
 def choose_node_label_render_method(html_stylize):
     if html_stylize:
         chosen_method = render_node_label_html
+        chosen_method = render_node_label_html_narrow
     else:
         chosen_method = render_node_label_text
     return chosen_method
@@ -1492,6 +1496,52 @@ def render_node_label_html(issue, summary_method, elements_to_include):
     )
     return node_label
 
+def render_node_label_html_narrow(issue, summary_method, elements_to_include):
+    summary = summary_method(issue)
+    summary = html.escape(summary)
+    summary = summary.replace("\n", "<br/>")
+    table_attributes = 'border="0" cellspacing="0" cellpadding="2"'
+    th_font_attributes = 'POINT-SIZE="12"'
+    td_attributes = 'align="center" colspan="2" cellspacing="0" cellpadding="2"'
+    td_font_attributes = ""
+    tr_assignee = ""
+    issue_assignee = issue.get_assignee_name() if "assignee" in elements_to_include else ""
+    if len(issue_assignee) > 0:
+        tr_assignee = Template(
+            '<tr>'
+            '<td align="center" colspan="2" cellspacing="0" cellpadding="2"><font $th_font_attributes><b> $issue_assignee </b></font></td>'
+            '</tr>',
+        ).substitute(
+            th_font_attributes=th_font_attributes,
+            issue_assignee=issue_assignee
+        )
+
+    label_template = Template(
+        # space required in docker version ... otherwise the empty <font|b> tag throws a syntax error (!?)
+        '<<table $table_attributes>'
+        '<tr>'
+        '<td align="center"><font $th_font_attributes><b> $issue_key </b></font></td>'
+        '<td align="center"><font $th_font_attributes><b> $issue_state </b></font></td>'
+        '</tr>'
+        '<tr><td $td_attributes><font $td_font_attributes> $issue_summary </font></td></tr>'
+        '$tr_assignee'
+        '</table>>'
+    )
+    node_label = label_template.substitute(
+        table_attributes=table_attributes,
+        th_font_attributes=th_font_attributes,
+        td_attributes=td_attributes,
+        td_font_attributes=td_font_attributes,
+        issue_key=issue.get_key(),
+        issue_state=(
+            issue.get_status_name().upper() if "state" in elements_to_include else ""
+        ),
+        tr_assignee=(
+            tr_assignee
+        ),
+        issue_summary=summary,
+    )
+    return node_label
 
 def redact_namespace(config, sensitive_keys=["user", "password"]):
     for key in sensitive_keys:
