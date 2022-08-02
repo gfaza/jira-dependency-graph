@@ -172,7 +172,7 @@ def common_path(node, keys):
     if not isinstance(keys, list):
         raise Exception("keys must be a list")
     paths = [path_to_root(node, key) for key in keys]
-    print(f'paths: {paths}')
+    # print(f'paths: {paths}')
     try:
         common_path_arr = [
             c[0] for c in takewhile(lambda x: all(x[0] == y for y in x), zip(*paths))
@@ -286,10 +286,10 @@ def render_issue_subgraph(subgraph_tree, clusters_to_labels, workflow_states):
                                             children=child_clusters)
             issue_state_subgraphs[issue_state] = issue_state_subgraph
             # test fuel
-            print(f'\nclusters_to_labels: {clusters_to_labels}\n')
-            print(f'\nworkflow_states: {workflow_states}\n')
-            print(f'\nchild_graphs: {child_graphs}\n')
-            print(f'\nchild_clusters: {child_clusters}\n')
+            # print(f'\nclusters_to_labels: {clusters_to_labels}\n')
+            # print(f'\nworkflow_states: {workflow_states}\n')
+            # print(f'\nchild_graphs: {child_graphs}\n')
+            # print(f'\nchild_clusters: {child_clusters}\n')
 
         issue_subgraph = CardSubgraph(snake_case(issue_name),
                                       node_sets=[[issue_name], cluster_labels],

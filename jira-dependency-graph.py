@@ -1170,13 +1170,13 @@ def main():
 
     # select only cards that are within the (conditionally) desired depth
 
-    log("Dumping retro-testing fuel ...")
-    log(f"jira_issue_cache = {jira.get_issue_cache()}")
-    log(f"graph = {graph}")
-
-    log(f"graph_config = {graph_config}")
-    log(f"elements_to_include = {elements_to_include}")
-    log(f"options = {options}")
+    # log("Dumping retro-testing fuel ...")
+    # log(f"jira_issue_cache = {jira.get_issue_cache()}")
+    # log(f"graph = {graph}")
+    #
+    # log(f"graph_config = {graph_config}")
+    # log(f"elements_to_include = {elements_to_include}")
+    # log(f"options = {options}")
 
     cards_beyond_depth_limit = []
     if options.depth_limit is not None:
@@ -1185,7 +1185,7 @@ def main():
             for key, issue in jira.get_issue_cache().items()
             if issue.get_level() is not None
         }
-        log(f"card_levels: {card_levels}")
+        # log(f"card_levels: {card_levels}")
         issues_beyond_depth_limit = {
             k: issue
             for k, issue in jira.get_issue_cache().items()
@@ -1195,7 +1195,7 @@ def main():
             cards_beyond_depth_limit.append(k)
             issue.set_excluded(True)
 
-        log(f"cards_beyond_depth_limit: {cards_beyond_depth_limit}")
+        # log(f"cards_beyond_depth_limit: {cards_beyond_depth_limit}")
         graph = [
             line
             for line in graph
@@ -1339,12 +1339,12 @@ def main():
         filtered_graph = filter_duplicates(graph)
         digraph = digraph + ["\n\n// Graph"] + filtered_graph
 
-        log(f"\n\nfiltered_graph: {filtered_graph}\n\n")
+        # log(f"\n\nfiltered_graph: {filtered_graph}\n\n")
         jira_issue_cache_for_graph = {
             k: {"card_level": obj.get_level()}
             for k, obj in jira.get_issue_cache().items()
         }
-        log(f"\n\njira_issue_cache_for_graph: {jira_issue_cache_for_graph}\n\n")
+        # log(f"\n\njira_issue_cache_for_graph: {jira_issue_cache_for_graph}\n\n")
 
     graph_attributes = {"rankdir": options.graph_rank_direction}
     if "graph_arguments" in elements_to_include:
@@ -1609,10 +1609,10 @@ def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
         [subgraph_tree.render() for subgraph_tree in subgraph_trees.values()]
     )
     subgraph_trees_str = re.sub(r";\s+;", ";", subgraph_trees_str)
-    log(f"(\n# subgraph_tree\n{subgraph_tree},")
-    log(f"# clusters_to_labels\n{clusters_to_labels},")
-    log(f"# workflow_states\n{workflow_states},")
-    log(f"# subgraph_tree_str_expected\n{subgraph_trees_str}),")
+    # log(f"(\n# subgraph_tree\n{subgraph_tree},")
+    # log(f"# clusters_to_labels\n{clusters_to_labels},")
+    # log(f"# workflow_states\n{workflow_states},")
+    # log(f"# subgraph_tree_str_expected\n{subgraph_trees_str}),")
     return [subgraph_trees_str]
 
 
