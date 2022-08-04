@@ -167,6 +167,7 @@ class JiraSearch(object):
         log("Updating " + key)
         response = self.put("/issue/%s" % key, payload)
         response.raise_for_status()
+        log("View updated card description at " + self.get_issue_uri(key))
         return response
 
     def query(self, query):
