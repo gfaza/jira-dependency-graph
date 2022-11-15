@@ -13,6 +13,8 @@ import getpass
 import sys
 import textwrap
 
+import ipdb
+
 import requests
 from functools import reduce
 
@@ -975,6 +977,14 @@ def parse_args(choice_of_org=None):
         help="Don" "t include sub-tasks issues",
     )
     parser.add_argument(
+        "-eee",
+        "--exclude-empty-epics",
+        dest="exclude_empty_epics",
+        action="store_true",
+        default=False,
+        help="Omit empty epics from the graph",
+    )
+    parser.add_argument(
         "-T",
         "--dont-traverse",
         dest="traverse",
@@ -1197,14 +1207,7 @@ def main():
             issue.set_excluded(True)
 
         # log(f"cards_beyond_depth_limit: {cards_beyond_depth_limit}")
-        graph = [
-            line
-            for line in graph
-            if all(
-                create_node_key(issue_key) not in line
-                for issue_key in cards_beyond_depth_limit
-            )
-        ]
+        graph = remove_lines_by_issue_keys(graph, cards_beyond_depth_limit)
 
         # render cards outside of the initial depth, a little smaller
         depth_relative_node_graph = []
@@ -1223,6 +1226,15 @@ def main():
                     )
             depth_relative_node_graph.append(line)
         graph = depth_relative_node_graph
+
+    if options.exclude_empty_epics:
+        epic_keys = [k for k, issue in jira.get_issue_cache().items() if issue.get_issuetype_name() == 'Epic']
+        parent_keys = [issue.get_parent().get('key') for k, issue in jira.get_issue_cache().items() if issue.get_parent() and not issue.get_excluded()]
+        empty_epic_keys = set(epic_keys) - set(parent_keys)
+        # log(f"empty_epic_keys: {empty_epic_keys}")
+        for empty_epic_key in empty_epic_keys:
+            jira.get_issue_cache()[empty_epic_key].set_excluded(True)
+        graph = remove_lines_by_issue_keys(graph, empty_epic_keys)
 
     labels_to_cards = {}
 
@@ -1257,6 +1269,7 @@ def main():
             for issue_key, issue in jira.get_issue_cache().items()
             if issue.get_level() is not None
             and issue_key not in cards_beyond_depth_limit
+            and not issue.get_excluded()
         }
         labels_to_cards = invert_dict(cards_to_labels)
 
@@ -1401,6 +1414,17 @@ def main():
 
             # update the issue description with the updated png
             update_issue_graph(jira, options.issue_update, file_attachment_path)
+
+
+def remove_lines_by_issue_keys(graph, issue_keys):
+    return [
+        line
+        for line in graph
+        if all(
+            create_node_key(issue_key) not in line
+            for issue_key in issue_keys
+        )
+    ]
 
 
 # renderer stuffs
