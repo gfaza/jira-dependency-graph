@@ -1589,6 +1589,16 @@ def generate_subgraphs(labels_to_cards, graph_config, issue_cache):
         and JiraIssue.get_key_from(issue.get_parent()) in issue_cache
     }
 
+    # for any issues without a parent, treat a singular blocked dependent as the parent for layout
+    for issue_key in set(issue_cache.keys()) - set(card_to_parent.keys()):
+        blocked_keys = [link['outwardIssue']['key'] for link in issue_cache[issue_key].get_issuelinks() if
+                        link['type']['name'] == 'Blocks'
+                        and link.get('outwardIssue', {}).get('key', issue_key) != issue_key]
+        blocked_keys = [blocked_key for blocked_key in blocked_keys if
+                        blocked_key in issue_cache and not issue_cache[blocked_key].get_excluded()]
+        if len(blocked_keys) == 1:
+            card_to_parent[issue_key] = blocked_keys[0]
+
     issues_to_graph = {
         issue_key: issue
         for issue_key, issue in issue_cache.items()
